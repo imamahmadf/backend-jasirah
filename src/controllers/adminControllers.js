@@ -1,8 +1,6 @@
 const {
   pegawai,
 
-  daftarGolongan,
-  daftarPangkat,
   perjalanan,
   personil,
   tempat,
@@ -64,11 +62,7 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: profile },
-                ],
+                include: [{ model: profile }],
               },
               {
                 model: status,
@@ -378,7 +372,7 @@ module.exports = {
       result.forEach((suratKeluarItem) => {
         const perjalanans = suratKeluarItem.perjalanans || [];
         const tanggalSurat = formatTanggalIndonesia(
-          suratKeluarItem.tanggalSurat
+          suratKeluarItem.tanggalSurat,
         );
         const namaPegawai = suratKeluarItem.pegawai?.nama || "-";
         const nip = suratKeluarItem.pegawai?.nip || "-";
@@ -387,17 +381,17 @@ module.exports = {
           perjalanans.forEach((perjalananItem) => {
             const tempats = perjalananItem.tempats || [];
             const tanggalPengajuan = formatTanggalIndonesia(
-              perjalananItem.tanggalPengajuan
+              perjalananItem.tanggalPengajuan,
             );
 
             if (tempats.length > 0) {
               tempats.forEach((tempatItem) => {
                 rowIndex++;
                 const tanggalBerangkat = formatTanggalIndonesia(
-                  tempatItem.tanggalBerangkat
+                  tempatItem.tanggalBerangkat,
                 );
                 const tanggalPulang = formatTanggalIndonesia(
-                  tempatItem.tanggalPulang
+                  tempatItem.tanggalPulang,
                 );
 
                 let tempatTujuan = tempatItem.tempat || "-";
@@ -462,11 +456,11 @@ module.exports = {
       // Set response headers
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        "attachment; filename=data-surat-keluar.xlsx"
+        "attachment; filename=data-surat-keluar.xlsx",
       );
 
       // Send Excel file
@@ -547,7 +541,7 @@ module.exports = {
 
       await daftarNomorSurat.update(
         { nomorLoket },
-        { where: { id: dbNoSurat.id }, transaction }
+        { where: { id: dbNoSurat.id }, transaction },
       );
 
       // Jika nomorSurat null, generate nomor surat otomatis
@@ -592,7 +586,7 @@ module.exports = {
           tanggalSurat,
           pegawaiId,
         },
-        transaction
+        transaction,
       );
       await transaction.commit();
       return res.status(200).json({ result });
@@ -1038,7 +1032,7 @@ module.exports = {
 
   deletePerjalananByUnitKerjaId: async (req, res) => {
     const unitKerjaId = parseInt(
-      req.params.unitKerjaId || req.query.unitKerjaId
+      req.params.unitKerjaId || req.query.unitKerjaId,
     );
     const tahun = req.body.tahun ? parseInt(req.body.tahun) : null;
 
@@ -1123,7 +1117,7 @@ module.exports = {
           const undanganPath = path.join(
             __dirname,
             "../public",
-            perjalananItem.undangan
+            perjalananItem.undangan,
           );
           try {
             if (fs.existsSync(undanganPath)) {
@@ -1135,7 +1129,7 @@ module.exports = {
           } catch (fileError) {
             console.error(
               `Gagal menghapus file undangan ${perjalananItem.undangan}:`,
-              fileError.message
+              fileError.message,
             );
           }
         }
@@ -1158,7 +1152,7 @@ module.exports = {
               } catch (fileError) {
                 console.error(
                   `Gagal menghapus file foto ${fotoItem.foto}:`,
-                  fileError.message
+                  fileError.message,
                 );
               }
             }

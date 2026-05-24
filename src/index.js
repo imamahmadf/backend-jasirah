@@ -44,7 +44,9 @@ const {
   perencanaanAdminRouter,
   satuanIndikatorRouter,
   indikatorRouter,
-  templateBPDRouter
+  templateBPDRouter,
+  payrollRouter,
+  mutasiPersediaanRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -106,7 +108,7 @@ app.use(
     origin: process.env.WHITELISTED_DOMAIN
       ? process.env.WHITELISTED_DOMAIN.split(",")
       : "*",
-  })
+  }),
 );
 
 app.use(express.json());
@@ -152,6 +154,8 @@ app.use("/api/admin-perencanaan", perencanaanAdminRouter);
 app.use("/api/satuan-indikator", satuanIndikatorRouter);
 app.use("/api/indikator", indikatorRouter);
 app.use("/api/templateBPD", templateBPDRouter);
+app.use("/api/payroll", payrollRouter);
+app.use("/api/mutasi-persediaan", mutasiPersediaanRouter);
 
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);

@@ -18,6 +18,7 @@ const {
   bangunan,
   persediaan,
   stokMasuk,
+  stokKeluar,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -1008,26 +1009,28 @@ module.exports = {
 
       // Hitung total stok masuk untuk persediaan
       const stokMasukData = await stokMasuk.findAll({
-        attributes: [
-          "jumlah",
-          "hargaSatuan",
-          "persediaanId",
-          [sequelize.literal("jumlah * hargaSatuan"), "totalNilai"],
-        ],
+        attributes: ["id", "jumlah", "hargaSatuan", "persediaanId"],
         include: [
           {
             model: persediaan,
             required: true,
             where: whereConditionPersediaan,
           },
+          {
+            model: stokKeluar,
+            attributes: ["jumlah"],
+            required: false,
+          },
           ...stokMasukInclude,
         ],
       });
 
       const totalNilaiPersediaan = stokMasukData.reduce((sum, item) => {
-        const total =
-          (parseFloat(item.hargaSatuan) || 0) * (parseInt(item.jumlah) || 0);
-        return sum + total;
+        const totalKeluar = item.stokKeluars
+          ? item.stokKeluars.reduce((s, k) => s + (k.jumlah || 0), 0)
+          : 0;
+        const sisaStok = Math.max(0, (item.jumlah || 0) - totalKeluar);
+        return sum + (parseFloat(item.hargaSatuan) || 0) * sisaStok;
       }, 0);
 
       // Hitung jumlah unik persediaan dari stokMasuk

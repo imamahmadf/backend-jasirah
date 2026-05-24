@@ -2,9 +2,7 @@ const {
   pegawai,
   golongan,
   pangkat,
-  daftarTingkatan,
-  daftarGolongan,
-  daftarPangkat,
+
   daftarUnitKerja,
   perjalanan,
   personil,
@@ -86,7 +84,7 @@ module.exports = {
           acc[unitKerjaId].statusPegawai[statusPegawai] = 0;
         }
         acc[unitKerjaId].statusPegawai[statusPegawai] += parseInt(
-          curr.getDataValue("jumlah")
+          curr.getDataValue("jumlah"),
         );
 
         // Menambah jumlah per profesi
@@ -131,12 +129,6 @@ module.exports = {
         ],
         attributes: ["id", "nama", "nip", "jabatan", "pendidikan"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           { model: daftarUnitKerja, as: "daftarUnitKerja", attributes: ["id"] },
           { model: profesi, as: "profesi" },
           { model: statusPegawai, as: "statusPegawai" },
@@ -162,12 +154,6 @@ module.exports = {
       const result = await pegawai.findAll({
         attributes: ["id", "nama", "nip", "jabatan", "profesiId"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           { model: daftarUnitKerja, as: "daftarUnitKerja", attributes: ["id"] },
         ],
       });
@@ -185,12 +171,6 @@ module.exports = {
       const result = await pegawai.findAll({
         attributes: ["id", "nama", "nip", "jabatan", "profesiId"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           { model: daftarUnitKerja, as: "daftarUnitKerja", attributes: ["id"] },
         ],
         where: { profesiId: 1 },
@@ -259,13 +239,8 @@ module.exports = {
         ],
         attributes: ["id", "nama", "nip", "jabatan", "pendidikan", "nik"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
           { model: statusPegawai, as: "statusPegawai" },
-          { model: daftarPangkat, as: "daftarPangkat" },
+
           { model: profesi, as: "profesi" },
           {
             model: daftarUnitKerja,
@@ -301,24 +276,22 @@ module.exports = {
     try {
       const result = await pegawai.findOne({
         where: { id },
-        attributes: ["id", "nama", "nip", "nik", "jabatan", "pendidikan"],
+        attributes: [
+          "id",
+          "nama",
+          "nip",
+          "nik",
+          "jabatan",
+          "pendidikan",
+          "gajiPokok",
+        ],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           {
             model: profesi,
             as: "profesi",
             attributes: ["nama", "id"],
           },
-          {
-            model: statusPegawai,
-            as: "statusPegawai",
-            attributes: ["status", "id"],
-          },
+
           {
             model: daftarUnitKerja,
             as: "daftarUnitKerja",
@@ -327,8 +300,6 @@ module.exports = {
           {
             model: riwayatPegawai,
             include: [
-              { model: daftarGolongan, as: "golongan" },
-              { model: daftarPangkat, as: "pangkat" },
               {
                 model: profesi,
                 as: "profesiLama",
@@ -356,9 +327,6 @@ module.exports = {
   },
   getSeedPegawai: async (req, res) => {
     try {
-      const resultGolongan = await daftarGolongan.findAll({});
-      const resultPangkat = await daftarPangkat.findAll({});
-      const resultTingkatan = await daftarTingkatan.findAll({});
       const resultStatusPegawai = await statusPegawai.findAll({});
       const resultUnitKerja = await daftarUnitKerja.findAll({
         attributes: ["id", "unitKerja"],
@@ -366,9 +334,6 @@ module.exports = {
       const resultProfesi = await profesi.findAll({});
 
       return res.status(200).json({
-        resultGolongan,
-        resultPangkat,
-        resultTingkatan,
         resultStatusPegawai,
         resultUnitKerja,
         resultProfesi,
@@ -390,12 +355,11 @@ module.exports = {
           jabatan: dataPegawai.jabatan,
           nip: dataPegawai.nip,
           nik: dataPegawai.nik,
-          golonganId: dataPegawai.daftarGolongan.id,
-          tingkatanId: dataPegawai.daftarTingkatan.id,
-          pangkatId: dataPegawai.daftarPangkat.id,
+          gajiPokok: dataPegawai.gajiPokok,
+
           unitKerjaId: dataPegawai.daftarUnitKerja.id,
         },
-        { where: { id } }
+        { where: { id } },
       );
 
       return res.status(200).json({ result });
@@ -452,7 +416,7 @@ module.exports = {
           pendidikan,
           tanggalTMT: validatedTanggalTMT,
         },
-        { transaction }
+        { transaction },
       );
       const hashedPassword = await bcrypt.hash(password, 10);
       const existingUser = await user.findOne({ where: { nama } });
@@ -473,7 +437,7 @@ module.exports = {
             namaPengguna: statusPegawaiId === 5 ? nikBaru : nipBaru,
             password: hashedPassword,
           },
-          { transaction }
+          { transaction },
         );
 
         const newProfile = await profile.create(
@@ -483,7 +447,7 @@ module.exports = {
             unitKerjaId,
             pegawaiId: result.id,
           },
-          { transaction }
+          { transaction },
         );
 
         const newUserRole = await userRole.create(
@@ -491,7 +455,7 @@ module.exports = {
             userId: newUser.id,
             roleId: 9,
           },
-          { transaction }
+          { transaction },
         );
       }
 
@@ -576,7 +540,7 @@ module.exports = {
             "Perjalanan Dinas Biasa"
               ? personil.perjalanan.tempats.map((tempat) => tempat.tempat)
               : personil.perjalanan.tempats.map(
-                  (tempat) => tempat.dalamKota.nama
+                  (tempat) => tempat.dalamKota.nama,
                 ),
           tanggalBerangkat:
             personil.perjalanan.tempats[0]?.tanggalBerangkat || null,
@@ -587,7 +551,7 @@ module.exports = {
             personil.statusId === 3 && personil.rincianBPDs
               ? personil.rincianBPDs.reduce(
                   (total, rincian) => total + rincian.nilai,
-                  0
+                  0,
                 )
               : 0,
         })),
@@ -649,13 +613,8 @@ module.exports = {
         ],
         attributes: ["id", "nama", "nip", "jabatan", "pendidikan"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
           { model: statusPegawai, as: "statusPegawai" },
-          { model: daftarPangkat, as: "daftarPangkat" },
+
           { model: profesi, as: "profesi" },
           {
             model: daftarUnitKerja,
@@ -691,8 +650,7 @@ module.exports = {
           nama: item.nama,
           nip: item.nip,
           jabatan: item.jabatan,
-          pangkat: item.daftarPangkat?.pangkat || "-",
-          golongan: item.daftarGolongan?.golongan || "-",
+
           status: item.statusPegawai?.status || "-",
           profesi: item.profesi.nama || "-",
           pendidikan: item.pendidikan,
@@ -703,11 +661,11 @@ module.exports = {
       // Set response headers
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        "attachment; filename=data-pegawai.xlsx"
+        "attachment; filename=data-pegawai.xlsx",
       );
 
       // Send Excel file
@@ -728,8 +686,6 @@ module.exports = {
         where: { id: ids },
         attributes: ["id", "nama", "nip", "jabatan"],
         include: [
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           {
             model: daftarUnitKerja,
             as: "daftarUnitKerja",
@@ -751,7 +707,7 @@ module.exports = {
       const { personilId, pegawaiBaruId, pegawaiLamaId } = req.body;
       const result = await personil.update(
         { pegawaiId: pegawaiBaruId },
-        { where: { id: personilId } }
+        { where: { id: personilId } },
       );
       return res.status(200).json({ success: true, data: result });
     } catch (err) {
@@ -825,7 +781,7 @@ module.exports = {
 
       await daftarNomorSurat.update(
         { nomorLoket: nomorAwalSPD + 1 }, // Hanya objek yang berisi field yang ingin diperbarui
-        { where: { id: dbNoSPD.id }, transaction }
+        { where: { id: dbNoSPD.id }, transaction },
       );
 
       await personil.create({
@@ -900,12 +856,6 @@ module.exports = {
             ],
             include: [
               {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
-              {
                 model: profesi,
                 as: "profesi",
                 attributes: ["nama", "id"],
@@ -944,12 +894,12 @@ module.exports = {
       const { pegawaiId, unitKerjaId, unitKerjaIdLama } = req.body;
       const result = await pegawai.update(
         { unitKerjaId },
-        { where: { id: pegawaiId }, transaction }
+        { where: { id: pegawaiId }, transaction },
       );
 
       const resultProfil = await profile.update(
         { unitKerjaId },
-        { where: { pegawaiId }, transaction }
+        { where: { pegawaiId }, transaction },
       );
 
       await transaction.commit();

@@ -4,7 +4,7 @@ const KPAs = [
     id: 1,
 
     unitKerjaId: 1,
-    pegawaiId: 6,
+    pegawaiId: 1,
     jabatan: "kuasa Pengguna Anggaran",
 
     createdAt: currentDate,
@@ -16,26 +16,6 @@ const KPAs = [
     unitKerjaId: 1,
     pegawaiId: 2,
     jabatan: "Kuasa Pengguna Anggaran",
-
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 3,
-
-    unitKerjaId: 1,
-    pegawaiId: 1,
-    jabatan: "Pengguna Anggaran",
-
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 4,
-
-    unitKerjaId: 5,
-    pegawaiId: 3,
-    jabatan: "Pengguna Anggaran",
 
     createdAt: currentDate,
     updatedAt: currentDate,

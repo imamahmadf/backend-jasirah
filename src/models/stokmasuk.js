@@ -18,6 +18,15 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.sumberDana);
       this.belongsTo(models.suratPesanan);
       this.belongsTo(models.satuanPersediaan);
+      this.belongsTo(models.mutasiPersediaan);
+      this.belongsTo(models.stokMasuk, {
+        foreignKey: "stokMasukAsalId",
+        as: "stokMasukAsal",
+      });
+      this.hasMany(models.stokMasuk, {
+        foreignKey: "stokMasukAsalId",
+        as: "stokMasukHasMutasi",
+      });
     }
   }
   stokMasuk.init(
@@ -34,11 +43,14 @@ module.exports = (sequelize, DataTypes) => {
       suratPesananId: DataTypes.INTEGER,
       nomorPesanan: DataTypes.INTEGER,
       satuanPersediaanId: DataTypes.INTEGER,
+      foto: DataTypes.STRING,
+      mutasiPersediaanId: DataTypes.INTEGER,
+      stokMasukAsalId: DataTypes.INTEGER,
     },
     {
       sequelize,
       modelName: "stokMasuk",
-    }
+    },
   );
   return stokMasuk;
 };

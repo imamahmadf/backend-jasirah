@@ -35,7 +35,9 @@ const atasanPJPLRouter = require("./atasanPJPLRouter");
 const perencanaanAdminRouter = require("./perencanaanAdminRouter");
 const satuanIndikatorRouter = require("./satuanIndikatorRouter");
 const indikatorRouter = require("./indikatorRouter");
-const templateBPDRouter = require("./templateBPDRouter")
+const templateBPDRouter = require("./templateBPDRouter");
+const payrollRouter = require("./payrollRouter");
+const mutasiPersediaanRouter = require("./mutasiPersediaanRouter");
 module.exports = {
   perjalananRouter,
   pegawaiRouter,
@@ -74,5 +76,7 @@ module.exports = {
   perencanaanAdminRouter,
   satuanIndikatorRouter,
   indikatorRouter,
-  templateBPDRouter
+  templateBPDRouter,
+  payrollRouter,
+  mutasiPersediaanRouter,
 };

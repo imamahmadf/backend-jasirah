@@ -2,9 +2,7 @@ const {
   pegawai,
   golongan,
   pangkat,
-  daftarTingkatan,
-  daftarGolongan,
-  daftarPangkat,
+
   rincianBPD,
   perjalanan,
   personil,
@@ -111,7 +109,7 @@ module.exports = {
       // Filter hanya file yang memiliki mimetype image
       const imageFiles = req.files
         ? req.files.filter(
-            (file) => file.mimetype && file.mimetype.startsWith("image/")
+            (file) => file.mimetype && file.mimetype.startsWith("image/"),
           )
         : [];
 
@@ -201,11 +199,7 @@ module.exports = {
         include: [
           {
             model: pegawai,
-            include: [
-              { model: daftarPangkat, as: "daftarPangkat" },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: profile },
-            ],
+            include: [{ model: profile }],
           },
           {
             model: rincianBPD,
@@ -488,17 +482,17 @@ module.exports = {
         (sum, item) =>
           sum +
           parseFloat(item.nilai.replace(/[^0-9,-]+/g, "").replace(",", ".")),
-        0
-      )
+        0,
+      ),
     );
 
     const total = formatRupiah(
-      rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0)
+      rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0),
     );
 
     const terbilang =
       formatTerbilang(
-        rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0)
+        rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0),
       ) + "Rupiah";
 
     try {
@@ -510,7 +504,7 @@ module.exports = {
       const templatePath = path.join(
         __dirname,
         "../public",
-        resultTemplate.template
+        resultTemplate.template,
       );
 
       // Baca file template
@@ -519,11 +513,11 @@ module.exports = {
       // Generate QR Code dengan logo tengah
       const logoPath = path.join(
         __dirname,
-        "../public/template-keuangan/penaLogo.png"
+        "../public/template-keuangan/penaLogo.png",
       );
       const qrDataUrl = await generateQrWithLogo(
         `https://pena.dinkes.paserkab.go.id/validasi/${id}`,
-        { sizePx: 500, logoPath, logoScale: 0.22 }
+        { sizePx: 500, logoPath, logoScale: 0.22 },
       );
 
       // Siapkan array foto dari fotoPerjalanan untuk loop di template
@@ -546,7 +540,7 @@ module.exports = {
               ? path.join(
                   __dirname,
                   "../public",
-                  normalizedFoto.replace(/[\\/]+/g, "/")
+                  normalizedFoto.replace(/[\\/]+/g, "/"),
                 )
               : path.join(__dirname, "../public/bukti", normalizedFoto);
 
@@ -558,7 +552,7 @@ module.exports = {
               const altPath = path.join(
                 __dirname,
                 "../public/pegawai",
-                normalizedFoto
+                normalizedFoto,
               );
               console.log("[FOTO] fallback path:", altPath);
               if (fs.existsSync(altPath)) finalFotoPath = altPath;
@@ -570,8 +564,8 @@ module.exports = {
                 ext === ".png"
                   ? "image/png"
                   : ext === ".jpg" || ext === ".jpeg"
-                  ? "image/jpeg"
-                  : "image/jpeg";
+                    ? "image/jpeg"
+                    : "image/jpeg";
               const fileBuf = fs.readFileSync(finalFotoPath);
               const base64 = fileBuf.toString("base64");
               const fotoDataUrl = `data:${mime};base64,${base64}`;
@@ -580,7 +574,7 @@ module.exports = {
                 "[FOTO] loaded:",
                 normalizedFoto,
                 "size:",
-                fileBuf.length
+                fileBuf.length,
               );
             } else {
               console.log("[FOTO] not found:", normalizedFoto);
@@ -595,7 +589,7 @@ module.exports = {
             ? path.join(
                 __dirname,
                 "../public",
-                normalizedFoto.replace(/[\\/]+/g, "/")
+                normalizedFoto.replace(/[\\/]+/g, "/"),
               )
             : path.join(__dirname, "../public/bukti", normalizedFoto);
 
@@ -607,7 +601,7 @@ module.exports = {
             const altPath = path.join(
               __dirname,
               "../public/pegawai",
-              normalizedFoto
+              normalizedFoto,
             );
             console.log("[FOTO] fallback path:", altPath);
             if (fs.existsSync(altPath)) finalFotoPath = altPath;
@@ -619,8 +613,8 @@ module.exports = {
               ext === ".png"
                 ? "image/png"
                 : ext === ".jpg" || ext === ".jpeg"
-                ? "image/jpeg"
-                : "image/jpeg";
+                  ? "image/jpeg"
+                  : "image/jpeg";
             const fileBuf = fs.readFileSync(finalFotoPath);
             const base64 = fileBuf.toString("base64");
             fotoArray.push(`data:${mime};base64,${base64}`);
@@ -633,7 +627,7 @@ module.exports = {
         // Filter array untuk memastikan hanya berisi string data URL yang valid
         fotoArray = fotoArray.filter(
           (foto) =>
-            foto && typeof foto === "string" && foto.startsWith("data:image/")
+            foto && typeof foto === "string" && foto.startsWith("data:image/"),
         );
 
         console.log("[FOTO] total loaded:", fotoArray.length);
@@ -677,7 +671,7 @@ module.exports = {
             if (typeof tagValue !== "string") {
               console.error(
                 "[FOTO] getImage: tagValue is not string, type:",
-                typeof tagValue
+                typeof tagValue,
               );
               return Buffer.alloc(0);
             }
@@ -697,7 +691,7 @@ module.exports = {
             }
 
             console.error(
-              "[FOTO] getImage: tagValue does not start with data:image/"
+              "[FOTO] getImage: tagValue does not start with data:image/",
             );
             return Buffer.alloc(0);
           } catch (err) {
@@ -806,19 +800,19 @@ module.exports = {
           tempat.length === 1
             ? ""
             : tempat.length > 1 && jenis === 1
-            ? tempat[1]?.tempat
-            : tempat.length > 1 && jenis !== 1
-            ? tempat[1]?.dalamKota.nama
-            : "", // Nilai default jika tidak ada kondisi yang terpenuhi
+              ? tempat[1]?.tempat
+              : tempat.length > 1 && jenis !== 1
+                ? tempat[1]?.dalamKota.nama
+                : "", // Nilai default jika tidak ada kondisi yang terpenuhi
 
         tempatSpd3:
           tempat.length === 1
             ? ""
             : tempat.length === 3 && jenis === 1
-            ? tempat[2]?.tempat
-            : tempat.length === 3 && jenis !== 1
-            ? tempat[2]?.dalamKota.nama
-            : "", // Nilai default jika tidak ada kondisi yang terpenuhi
+              ? tempat[2]?.tempat
+              : tempat.length === 3 && jenis !== 1
+                ? tempat[2]?.dalamKota.nama
+                : "", // Nilai default jika tidak ada kondisi yang terpenuhi
       };
 
       // CATATAN: docxtemplater-image-module-free memiliki bug dengan loop array,
@@ -840,7 +834,7 @@ module.exports = {
         console.log(
           "[FOTO] Sending",
           fotoArray.length,
-          "photos as foto1, foto2, foto3, etc. (and 'foto' for first photo)"
+          "photos as foto1, foto2, foto3, etc. (and 'foto' for first photo)",
         );
       } else {
         console.log("[FOTO] No photos to send");
@@ -857,7 +851,7 @@ module.exports = {
       const outputPath = path.join(
         __dirname,
         "../public/output",
-        outputFileName
+        outputFileName,
       );
 
       // Simpan file hasil ke server
@@ -998,17 +992,17 @@ module.exports = {
         (sum, item) =>
           sum +
           parseFloat(item.nilai.replace(/[^0-9,-]+/g, "").replace(",", ".")),
-        0
-      )
+        0,
+      ),
     );
 
     const total = formatRupiah(
-      rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0)
+      rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0),
     );
 
     const terbilang =
       formatTerbilang(
-        rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0)
+        rincianBPD.reduce((sum, item) => sum + (item.qty * item.nilai || 0), 0),
       ) + " Rupiah";
 
     try {
@@ -1020,7 +1014,7 @@ module.exports = {
       const templatePath = path.join(
         __dirname,
         "../public",
-        resultTemplate.template
+        resultTemplate.template,
       );
 
       const content = fs.readFileSync(templatePath, "binary");
@@ -1029,11 +1023,11 @@ module.exports = {
       // Generate QR Code dengan logo tengah
       const logoPath = path.join(
         __dirname,
-        "../public/template-keuangan/penaLogo.png"
+        "../public/template-keuangan/penaLogo.png",
       );
       const qrDataUrl = await generateQrWithLogo(
         `https://pena.dinkes.paserkab.go.id/validasi/${id}`,
-        { sizePx: 500, logoPath, logoScale: 0.22 }
+        { sizePx: 500, logoPath, logoScale: 0.22 },
       );
 
       const doc = new Docxtemplater(zip, {
@@ -1042,7 +1036,7 @@ module.exports = {
       });
       console.log(
         qrDataUrl ? "QR Code generated" : "No QR Code",
-        "INI QRCODEEE"
+        "INI QRCODEEE",
       );
       doc.render({
         bendaharaNama: dataBendahara.pegawai_bendahara.nama,
@@ -1086,18 +1080,18 @@ module.exports = {
           tempat.length === 1
             ? ""
             : tempat.length > 1 && jenis === 1
-            ? tempat[1]?.tempat
-            : tempat.length > 1 && jenis !== 1
-            ? tempat[1]?.dalamKota.nama
-            : "",
+              ? tempat[1]?.tempat
+              : tempat.length > 1 && jenis !== 1
+                ? tempat[1]?.dalamKota.nama
+                : "",
         tempatSpd3:
           tempat.length === 1
             ? ""
             : tempat.length === 3 && jenis === 1
-            ? tempat[2]?.tempat
-            : tempat.length === 3 && jenis !== 1
-            ? tempat[2]?.dalamKota.nama
-            : "",
+              ? tempat[2]?.tempat
+              : tempat.length === 3 && jenis !== 1
+                ? tempat[2]?.dalamKota.nama
+                : "",
       });
 
       // === Simpan dulu ke DOCX ===
@@ -1105,7 +1099,7 @@ module.exports = {
       const outputDocx = path.join(
         __dirname,
         "../public/output",
-        `SPPD_${Date.now()}.docx`
+        `SPPD_${Date.now()}.docx`,
       );
       fs.writeFileSync(outputDocx, buffer);
 
@@ -1127,12 +1121,12 @@ module.exports = {
         convertCommand = `${
           possiblePaths[0]
         } --headless --convert-to pdf "${outputDocx}" --outdir "${path.dirname(
-          outputDocx
+          outputDocx,
         )}"`;
       } else {
         // Untuk Linux/Mac
         convertCommand = `soffice --headless --convert-to pdf "${outputDocx}" --outdir "${path.dirname(
-          outputDocx
+          outputDocx,
         )}"`;
       }
 
@@ -1199,7 +1193,7 @@ module.exports = {
           qty: 1,
           satuan: "-",
         },
-        { transaction }
+        { transaction },
       );
       console.log(rillBPD.id);
 
@@ -1210,7 +1204,7 @@ module.exports = {
             item: `transport ${asal} ke ${tempatNama} (PP)`,
             nilai: BEUangtransport,
           },
-          { transaction }
+          { transaction },
         );
       } else {
         const rillTransport = await rill.create(
@@ -1219,7 +1213,7 @@ module.exports = {
             item: `transport pelayanan kesehatan (PP)`,
             nilai: BEUangtransport,
           },
-          { transaction }
+          { transaction },
         );
       }
 
@@ -1233,7 +1227,7 @@ module.exports = {
             qty: 1,
             satuan: "OH",
           },
-          { transaction }
+          { transaction },
         );
       }
 
@@ -1244,7 +1238,7 @@ module.exports = {
         {
           where: { id: personilId },
           transaction,
-        }
+        },
       );
 
       await transaction.commit();
@@ -1292,7 +1286,7 @@ module.exports = {
         // Validasi data personil
         if (!personilId || !uangHarian || !uangTransport) {
           throw new Error(
-            `Data personil tidak lengkap untuk personilId: ${personilId}`
+            `Data personil tidak lengkap untuk personilId: ${personilId}`,
           );
         }
 
@@ -1312,7 +1306,7 @@ module.exports = {
             qty: 1,
             satuan: "-",
           },
-          { transaction }
+          { transaction },
         );
 
         // Buat rill transport berdasarkan jenis pelayanan kesehatan
@@ -1323,7 +1317,7 @@ module.exports = {
               item: `transport ${asalPersonil} ke ${tempatNamaPersonil} (PP)`,
               nilai: BEUangtransport,
             },
-            { transaction }
+            { transaction },
           );
         } else {
           await rill.create(
@@ -1332,7 +1326,7 @@ module.exports = {
               item: `transport pelayanan kesehatan (PP)`,
               nilai: BEUangtransport,
             },
-            { transaction }
+            { transaction },
           );
         }
 
@@ -1347,7 +1341,7 @@ module.exports = {
               qty: 1,
               satuan: "OH",
             },
-            { transaction }
+            { transaction },
           );
         }
 
@@ -1359,7 +1353,7 @@ module.exports = {
           {
             where: { id: personilId },
             transaction,
-          }
+          },
         );
 
         results.push({
@@ -1406,7 +1400,7 @@ module.exports = {
       console.log(req.body);
       const result = await rincianBPD.update(
         { item, nilai, qty, satuan },
-        { where: { id } }
+        { where: { id } },
       );
 
       return res.status(200).json({ result });
@@ -1431,7 +1425,7 @@ module.exports = {
         {
           statusId: 3,
         },
-        { where: { id: personilId } }
+        { where: { id: personilId } },
       );
 
       // Emit notifikasi jika statusId berubah dari 2
@@ -1442,7 +1436,7 @@ module.exports = {
         } catch (notifErr) {
           console.error(
             "⚠️ Error emit notifikasi (tidak menghentikan response):",
-            notifErr
+            notifErr,
           );
         }
       }
@@ -1472,7 +1466,7 @@ module.exports = {
           statusId: 4,
           catatan,
         },
-        { where: { id: personilId } }
+        { where: { id: personilId } },
       );
 
       // Emit notifikasi karena statusId berubah menjadi 4 (kwitansi ditolak)
@@ -1483,7 +1477,7 @@ module.exports = {
       } catch (notifErr) {
         console.error(
           "⚠️ Error emit notifikasi (tidak menghentikan response):",
-          notifErr
+          notifErr,
         );
       }
 
@@ -1509,7 +1503,7 @@ module.exports = {
           statusId: 2,
         },
         { where: { id } },
-        transaction
+        transaction,
       );
 
       await transaction.commit();
@@ -1521,7 +1515,7 @@ module.exports = {
       } catch (notifErr) {
         console.error(
           "⚠️ Error emit notifikasi (tidak menghentikan response):",
-          notifErr
+          notifErr,
         );
       }
 
@@ -1542,14 +1536,14 @@ module.exports = {
         personils.map((p) =>
           personil.update(
             { ...p }, // data yang diupdate
-            { where: { id: p.id } } // pastikan ada id di tiap object
-          )
-        )
+            { where: { id: p.id } }, // pastikan ada id di tiap object
+          ),
+        ),
       );
 
       // Cek apakah ada perubahan statusId menjadi 2 (pengajuan) atau 4 (ditolak)
       const hasStatusIdChange = personils.some(
-        (p) => p.statusId === 2 || p.statusId === 4 || p.statusId !== undefined
+        (p) => p.statusId === 2 || p.statusId === 4 || p.statusId !== undefined,
       );
 
       // Emit notifikasi jika ada perubahan yang mungkin mempengaruhi count
@@ -1561,7 +1555,7 @@ module.exports = {
         } catch (notifErr) {
           console.error(
             "⚠️ Error emit notifikasi (tidak menghentikan response):",
-            notifErr
+            notifErr,
           );
         }
       }
@@ -1714,7 +1708,7 @@ module.exports = {
       const templatePath = path.join(
         __dirname,
         "../public",
-        resultTemplate.template
+        resultTemplate.template,
       );
       const templateContent = fs.readFileSync(templatePath, "binary");
 
@@ -1734,7 +1728,7 @@ module.exports = {
               ? path.join(
                   __dirname,
                   "../public",
-                  normalizedFoto.replace(/[\\/]+/g, "/")
+                  normalizedFoto.replace(/[\\/]+/g, "/"),
                 )
               : path.join(__dirname, "../public/bukti", normalizedFoto);
 
@@ -1743,7 +1737,7 @@ module.exports = {
               const altPath = path.join(
                 __dirname,
                 "../public/pegawai",
-                normalizedFoto
+                normalizedFoto,
               );
               if (fs.existsSync(altPath)) finalFotoPath = altPath;
             }
@@ -1754,8 +1748,8 @@ module.exports = {
                 ext === ".png"
                   ? "image/png"
                   : ext === ".jpg" || ext === ".jpeg"
-                  ? "image/jpeg"
-                  : "image/jpeg";
+                    ? "image/jpeg"
+                    : "image/jpeg";
               const fileBuf = fs.readFileSync(finalFotoPath);
               const base64 = fileBuf.toString("base64");
               fotoArray.push(`data:${mime};base64,${base64}`);
@@ -1763,7 +1757,7 @@ module.exports = {
           }
         }
         fotoArray = fotoArray.filter(
-          (f) => f && typeof f === "string" && f.startsWith("data:image/")
+          (f) => f && typeof f === "string" && f.startsWith("data:image/"),
         );
       } catch (err) {
         console.error("[BULK FOTO] error:", err);
@@ -1772,7 +1766,7 @@ module.exports = {
       // Logo path untuk QR Code
       const logoPath = path.join(
         __dirname,
-        "../public/template-keuangan/penaLogo.png"
+        "../public/template-keuangan/penaLogo.png",
       );
 
       // Hitung total durasi dari tempat (sama untuk semua personil)
@@ -1810,7 +1804,7 @@ module.exports = {
         // Skip jika tidak ada rincianBPD
         if (!rincianBPD || rincianBPD.length === 0) {
           console.log(
-            `[BULK] Skip personil ${personilId}: tidak ada rincianBPD`
+            `[BULK] Skip personil ${personilId}: tidak ada rincianBPD`,
           );
           continue;
         }
@@ -1842,13 +1836,13 @@ module.exports = {
           (sum, item) =>
             sum +
             parseFloat(item.nilai.replace(/[^0-9,-]+/g, "").replace(",", ".")),
-          0
+          0,
         );
         const totalRill = formatRupiah(totalRillValue);
 
         const totalValue = rincianBPD.reduce(
           (sum, item) => sum + (item.qty * item.nilai || 0),
-          0
+          0,
         );
         const total = formatRupiah(totalValue);
 
@@ -1857,7 +1851,7 @@ module.exports = {
         // Generate QR Code untuk personil ini
         const qrDataUrl = await generateQrWithLogo(
           `https://pena.dinkes.paserkab.go.id/validasi/${personilId}`,
-          { sizePx: 500, logoPath, logoScale: 0.22 }
+          { sizePx: 500, logoPath, logoScale: 0.22 },
         );
 
         // Simpan data dengan suffix nomor (1-5)
@@ -1988,18 +1982,18 @@ module.exports = {
           tempat.length === 1
             ? ""
             : tempat.length > 1 && jenis === 1
-            ? tempat[1]?.tempat
-            : tempat.length > 1 && jenis !== 1
-            ? tempat[1]?.dalamKota?.nama
-            : "",
+              ? tempat[1]?.tempat
+              : tempat.length > 1 && jenis !== 1
+                ? tempat[1]?.dalamKota?.nama
+                : "",
         tempatSpd3:
           tempat.length === 1
             ? ""
             : tempat.length === 3 && jenis === 1
-            ? tempat[2]?.tempat
-            : tempat.length === 3 && jenis !== 1
-            ? tempat[2]?.dalamKota?.nama
-            : "",
+              ? tempat[2]?.tempat
+              : tempat.length === 3 && jenis !== 1
+                ? tempat[2]?.dalamKota?.nama
+                : "",
         // Jumlah personil yang diproses
         jumlahPersonil: processedCount,
         // Data personil bernomor (1-5)

@@ -68,6 +68,14 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "asalUnitKerjaId",
         as: "unitKerjaAsal",
       });
+      this.hasMany(models.mutasiPersediaan, {
+        foreignKey: "unitKerjaAsalId",
+        as: "mutasiPersediaanAsal",
+      });
+      this.hasMany(models.mutasiPersediaan, {
+        foreignKey: "unitKerjaTujuanId",
+        as: "mutasiPersediaanTujuan",
+      });
       this.hasMany(models.stokMasuk, {
         foreignKey: "unitKerjaId",
       });
@@ -92,6 +100,10 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.pejabatVerifikator, { foreignKey: "unitKerjaId" });
       this.hasMany(models.templateBPD, {
         foreignKey: "unitKerjaId",
+      });
+      this.hasMany(models.Presensi, {
+        foreignKey: "unitKerjaId",
+        as: "presensis",
       });
     }
   }

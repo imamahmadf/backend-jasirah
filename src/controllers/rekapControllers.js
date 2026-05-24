@@ -1,9 +1,7 @@
 const {
   daftarUnitKerja,
   daftarSubKegiatan,
-  daftarPangkat,
-  daftarGolongan,
-  daftarTingkatan,
+
   ttdNotaDinas,
   ttdSuratTugas,
   profesi,
@@ -214,12 +212,7 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                  { model: profesi, as: "profesi" },
-                ],
+                include: [{ model: profesi, as: "profesi" }],
               },
               { model: status },
             ],
@@ -255,11 +248,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: indukUnitKerja,
@@ -277,11 +265,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_KPA",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
             ],
           },
@@ -298,11 +281,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_notaDinas",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: daftarUnitKerja,
@@ -328,7 +306,7 @@ module.exports = {
 
       const filteredResult = rows.filter((item) => {
         const hasProfesiId1 = item.personils?.some(
-          (p) => p.pegawai?.profesi?.id === 1
+          (p) => p.pegawai?.profesi?.id === 1,
         );
 
         // Kembalikan true jika TIDAK memiliki profesi.id == 1
@@ -445,12 +423,7 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                  { model: profesi, as: "profesi" },
-                ],
+                include: [{ model: profesi, as: "profesi" }],
               },
               { model: status },
             ],
@@ -486,11 +459,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: indukUnitKerja,
@@ -508,11 +476,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_KPA",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
             ],
           },
@@ -529,11 +492,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_notaDinas",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: daftarUnitKerja,
@@ -560,7 +518,7 @@ module.exports = {
       // Filter out profesi.id === 1
       const filteredResult = result.filter((item) => {
         const hasProfesiId1 = item.personils?.some(
-          (p) => p.pegawai?.profesi?.id === 1
+          (p) => p.pegawai?.profesi?.id === 1,
         );
         return !hasProfesiId1;
       });
@@ -598,7 +556,7 @@ module.exports = {
         if (tempats.length > 0) {
           const tempatPertama = tempats[0];
           tanggalBerangkat = formatTanggalIndonesia(
-            tempatPertama.tanggalBerangkat
+            tempatPertama.tanggalBerangkat,
           );
           tanggalPulang = formatTanggalIndonesia(tempatPertama.tanggalPulang);
         }
@@ -646,11 +604,11 @@ module.exports = {
       // Set response headers
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        "attachment; filename=rekap-surat-tugas.xlsx"
+        "attachment; filename=rekap-surat-tugas.xlsx",
       );
 
       // Send Excel file
@@ -818,7 +776,7 @@ module.exports = {
         {
           untuk,
         },
-        { transaction }
+        { transaction },
       );
 
       const dataPersonil = pegawaiIds.map((item) => ({
@@ -850,7 +808,7 @@ module.exports = {
             dalamKotaId: item.dalamKotaId,
             tanggalBerangkat: item.tanggalBerangkat,
             tanggalPulang: item.tanggalPulang,
-          })
+          }),
         );
         await tempat.bulkCreate(dataDalamKota, { transaction });
       }
@@ -874,18 +832,18 @@ module.exports = {
             (indukUnitKerjaFE.id == 1
               ? "         "
               : nomorAwalSPD + index + 1
-            ).toString()
+            ).toString(),
           )
           .replace("KODE", codeNoSPD)
           .replace(
             "BULAN",
-            getRomanMonth(new Date(tempats[0].tanggalBerangkat))
+            getRomanMonth(new Date(tempats[0].tanggalBerangkat)),
           ),
       }));
 
       await daftarNomorSurat.update(
         { nomorLoket: nomorAwalSPD + noSpd.length }, // Hanya objek yang berisi field yang ingin diperbarui
-        { where: { id: dbNoSPD.id }, transaction }
+        { where: { id: dbNoSPD.id }, transaction },
       );
 
       for (const [index, pegawaiId] of pegawaiIds.entries()) {
@@ -900,7 +858,7 @@ module.exports = {
               pegawaiId: parseInt(pegawaiId),
             },
             transaction,
-          }
+          },
         );
       }
       await transaction.commit();
@@ -1045,10 +1003,10 @@ module.exports = {
             tempats.forEach((tempatItem) => {
               rowIndex++;
               const tanggalBerangkat = formatTanggalIndonesia(
-                tempatItem.tanggalBerangkat
+                tempatItem.tanggalBerangkat,
               );
               const tanggalPulang = formatTanggalIndonesia(
-                tempatItem.tanggalPulang
+                tempatItem.tanggalPulang,
               );
 
               let tujuan = tempatItem.tempat || "-";
@@ -1089,11 +1047,11 @@ module.exports = {
       // Set response headers
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       res.setHeader(
         "Content-Disposition",
-        "attachment; filename=rekap-perjalanan.xlsx"
+        "attachment; filename=rekap-perjalanan.xlsx",
       );
 
       // Send Excel file

@@ -35,7 +35,9 @@ const atasanPJPLControllers = require("./atasanPJPLControllers");
 const perencanaanAdminControllers = require("./perencanaanAdminControllers");
 const satuanIndikatorControllers = require("./satuanIndikatorControllers");
 const indikatorControllers = require("./indikatorControllers");
-const templateBPDControllers = require("./templateBPDControllers")
+const templateBPDControllers = require("./templateBPDControllers");
+const payrollControllers = require("./PayrollControllers");
+const mutasiPersediaanControllers = require("./mutasiPersediaanControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -74,5 +76,7 @@ module.exports = {
   perencanaanAdminControllers,
   satuanIndikatorControllers,
   indikatorControllers,
-  templateBPDControllers
+  templateBPDControllers,
+  payrollControllers,
+  mutasiPersediaanControllers,
 };

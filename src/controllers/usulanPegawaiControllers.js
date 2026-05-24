@@ -2,9 +2,7 @@ const {
   pegawai,
   golongan,
   pangkat,
-  daftarTingkatan,
-  daftarGolongan,
-  daftarPangkat,
+
   daftarUnitKerja,
   dalamKota,
   profesi,
@@ -74,12 +72,6 @@ module.exports = {
             model: pegawai,
             include: [
               {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
-              {
                 model: daftarUnitKerja,
                 as: "daftarUnitKerja",
                 attributes: ["id"],
@@ -120,7 +112,7 @@ module.exports = {
     try {
       const result = await usulanPegawai.update(
         { catatan, status, nomorUsulan: status === 1 ? kode : null },
-        { where: { id } }
+        { where: { id } },
       );
       return res.status(200).json({ result });
     } catch (err) {
@@ -242,7 +234,7 @@ module.exports = {
       // update status laporanUsulanPegawai
       const result = await laporanUsulanPegawai.update(
         { status: "Tutup" },
-        { where: { id }, transaction } // transaction harus di sini
+        { where: { id }, transaction }, // transaction harus di sini
       );
 
       // hapus semua data usulanPegawai
@@ -334,7 +326,7 @@ module.exports = {
           golonganId: parseInt(golonganId),
           tanggalTMT,
         },
-        { where: { id: pegawaiId }, transaction }
+        { where: { id: pegawaiId }, transaction },
       );
 
       // 5. Create riwayat pegawai dengan nilai yang benar
@@ -346,7 +338,7 @@ module.exports = {
           profesiLamaId,
           pangkatId: parseInt(pangkatId) - 1,
         },
-        { transaction } // Fixed: proper transaction parameter
+        { transaction }, // Fixed: proper transaction parameter
       );
 
       // 6. Commit transaction setelah semua operasi berhasil

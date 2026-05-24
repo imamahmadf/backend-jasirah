@@ -14,10 +14,9 @@ const {
   sequelize,
   tempat,
   jenisPerjalanan,
-  daftarGolongan,
-  daftarPangkat,
+
   dalamKota,
-  daftarTingkatan,
+
   KPA,
   ttdNotaDinas,
   daftarUnitKerja,
@@ -117,14 +116,14 @@ module.exports = {
               indukUnitKerjaFE.kode;
 
         // Buat nomor baru dengan mengganti "NOMOR" dengan nomorLoket
-        nomorBaru = dbNoSurat.jenisSurat.nomorSurat
-          .replace(
-            "NOMOR",
-            penomoran === "nonaktif" ? "        " : nomorLoket.toString(),
-          )
-          .replace("KLASIFIKASI", kodeKlasifikasi.value.kode)
-          .replace("KODE", kode)
-          .replace("BULAN", getRomanMonth(new Date(tanggalPengajuan)));
+        nomorBaru = dbNoSurat.jenisSurat.nomorSurat;
+        // .replace(
+        //   "NOMOR",
+        //   penomoran === "nonaktif" ? "        " : nomorLoket.toString(),
+        // )
+        // .replace("KLASIFIKASI", kodeKlasifikasi.value.kode)
+        // .replace("KODE", kode)
+        // .replace("BULAN", getRomanMonth(new Date(tanggalPengajuan)));
 
         resultSuratKeluar = await suratKeluar.create(
           {
@@ -306,10 +305,7 @@ module.exports = {
         noNotDis: nomorBaru,
         ttdSurtTugJabatan: dataTtdSurTug.value.jabatan,
         ttdNotDinNama: ttdNotDis.value.pegawai_notaDinas.nama,
-        ttdNotDinPangkat:
-          ttdNotDis.value.pegawai_notaDinas.daftarPangkat.pangkat,
-        ttdNotDinGolongan:
-          ttdNotDis.value.pegawai_notaDinas.daftarGolongan.golongan,
+
         ttdNotDinJabatan: ttdNotDis.value.jabatan,
         ttdNotDinNip: `NIP. ${ttdNotDis.value.pegawai_notaDinas.nip}`,
         sumber,
@@ -595,12 +591,6 @@ module.exports = {
             as: "pegawai_notaDinas",
             include: [
               {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
-              {
                 model: daftarUnitKerja,
                 as: "daftarUnitKerja",
                 attributes: ["id"],
@@ -755,12 +745,6 @@ module.exports = {
             as: "pegawai_notaDinas",
             include: [
               {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
-              {
                 model: daftarUnitKerja,
                 as: "daftarUnitKerja",
                 attributes: ["id", "indukUnitKerjaId"],
@@ -861,27 +845,27 @@ module.exports = {
     // const time = req.query.time?.toUpperCase() === "DESC" ? "DESC" : "ASC";
     const time = "ASC";
     const offset = limit * page;
-    // console.log(unitKerjaId, "INI UNIT KERJA");
-    const whereConditionTempat = {};
+    console.log(unitKerjaId, "INI UNIT KERJA");
+    // const whereConditionTempat = {};
 
-    if (tanggalBerangkat) {
-      whereConditionTempat.tanggalBerangkat = {
-        [Op.gte]: new Date(tanggalBerangkat),
-      };
-    }
+    // if (tanggalBerangkat) {
+    //   whereConditionTempat.tanggalBerangkat = {
+    //     [Op.gte]: new Date(tanggalBerangkat),
+    //   };
+    // }
 
-    if (tanggalPulang) {
-      whereConditionTempat.tanggalPulang = {
-        [Op.lte]: new Date(tanggalPulang),
-      };
-    }
+    // if (tanggalPulang) {
+    //   whereConditionTempat.tanggalPulang = {
+    //     [Op.lte]: new Date(tanggalPulang),
+    //   };
+    // }
     try {
       const { count, rows } = await perjalanan.findAndCountAll({
         offset,
         limit,
         order: [
           ["id", "DESC"],
-          [{ model: personil }, "id", "ASC"],
+          // [{ model: personil }, "id", "ASC"],
         ],
         attributes: [
           "id",
@@ -900,19 +884,14 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                  { model: profesi, as: "profesi" },
-                ],
+                include: [{ model: profesi, as: "profesi" }],
               },
               { model: status },
             ],
           },
           {
             model: tempat,
-            where: whereConditionTempat,
+            // where: whereConditionTempat,
             attributes: ["tempat", "tanggalBerangkat", "tanggalPulang"],
             include: [
               {
@@ -939,22 +918,12 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
+                include: [],
               },
               {
                 model: indukUnitKerja,
                 attributes: ["id", "kodeInduk"],
                 as: "indukUnitKerja_ttdSuratTugas",
-                // include: [
-                //   {
-                //     model: daftarUnitKerja,
-                //     attributes: ["id", "kode"],
-                //   },
-                // ],
               },
             ],
           },
@@ -967,45 +936,37 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_KPA",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
+                include: [],
               },
             ],
           },
-          {
-            model: ttdNotaDinas,
-            attributes: ["id", "unitKerjaId", "pegawaiId", "jabatan"],
-            where: { unitKerjaId }, // ✅ Filter data berdasarkan unit kerja yang diminta
-            required: true,
-            // ✅ Pastikan hanya ambil yang punya relasi
-            paranoid: false, // ✅ tambahkan ini
-            include: [
-              {
-                model: pegawai,
-                attributes: ["id", "nama", "nip", "jabatan"],
-                as: "pegawai_notaDinas",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
-              },
-              {
-                model: daftarUnitKerja,
-                attributes: ["id", "indukUnitKerjaId"],
-                as: "unitKerja_notaDinas",
-                include: [
-                  {
-                    model: indukUnitKerja,
-                    attributes: ["id", "kodeInduk"],
-                  },
-                ],
-              },
-            ],
-          },
+          // {
+          //   model: ttdNotaDinas,
+          //   attributes: ["id", "unitKerjaId", "pegawaiId", "jabatan"],
+          //   where: { unitKerjaId }, // ✅ Filter data berdasarkan unit kerja yang diminta
+          //   required: true,
+          //   // ✅ Pastikan hanya ambil yang punya relasi
+          //   paranoid: false, // ✅ tambahkan ini
+          //   include: [
+          //     {
+          //       model: pegawai,
+          //       attributes: ["id", "nama", "nip", "jabatan"],
+          //       as: "pegawai_notaDinas",
+          //       include: [],
+          //     },
+          //     {
+          //       model: daftarUnitKerja,
+          //       attributes: ["id", "indukUnitKerjaId"],
+          //       as: "unitKerja_notaDinas",
+          //       include: [
+          //         {
+          //           model: indukUnitKerja,
+          //           attributes: ["id", "kodeInduk"],
+          //         },
+          //       ],
+          //     },
+          //   ],
+          // },
           {
             model: jenisPerjalanan,
             attributes: ["id", "jenis", "kodeRekening"],
@@ -1014,17 +975,17 @@ module.exports = {
         ],
       });
 
-      const filteredResult = rows.filter((item) => {
-        const hasProfesiId1 = item.personils.some(
-          (p) => p.pegawai?.profesi?.id === 1,
-        );
+      // const filteredResult = rows.filter((item) => {
+      //   const hasProfesiId1 = item.personils.some(
+      //     (p) => p.pegawai?.profesi?.id === 1,
+      //   );
 
-        // Kembalikan true jika TIDAK memiliki profesi.id == 1
-        return !hasProfesiId1;
-      });
+      //   // Kembalikan true jika TIDAK memiliki profesi.id == 1
+      //   return !hasProfesiId1;
+      // });
 
       return res.status(200).json({
-        result: filteredResult,
+        result: rows,
         page,
         limit,
         totalRows: count,
@@ -1226,8 +1187,7 @@ module.exports = {
         nama: item.pegawai.nama,
         nip: item.pegawai.nip,
         jabatan: item.pegawai.jabatan,
-        golongan: item.pegawai.daftarGolongan.golongan,
-        pangkat: item.pegawai.daftarPangkat.pangkat,
+
         no: index + 1,
         kepada: "",
         a: "",
@@ -1689,33 +1649,6 @@ module.exports = {
         pegawai4Nama: personilFE[3]?.pegawai?.nama || "TIDAK ADA PEGAWAI !",
         pegawai5Nama: personilFE[4]?.pegawai?.nama || "TIDAK ADA PEGAWAI !",
 
-        pegawai1Tingkatan: personilFE[0]?.pegawai?.daftarTingkatan.tingkatan,
-        pegawai2Tingkatan:
-          personilFE[1]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai3Tingkatan:
-          personilFE[2]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai4Tingkatan:
-          personilFE[3]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai5Tingkatan:
-          personilFE[4]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-
-        pegawai1Pangkat: personilFE[0]?.pegawai?.daftarPangkat.pangkat,
-        pegawai2Pangkat:
-          personilFE[1]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai3Pangkat:
-          personilFE[2]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai4Pangkat:
-          personilFE[3]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai5Pangkat:
-          personilFE[4]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
         noSpd1:
           Array.isArray(noSpd) && noSpd[0]
             ? noSpd[0].nomorSPD
@@ -1737,21 +1670,6 @@ module.exports = {
             ? noSpd[4].nomorSPD
             : "TIDAK ADA NOMOR",
 
-        pegawai1Golongan:
-          personilFE[0]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai2Golongan:
-          personilFE[1]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai3Golongan:
-          personilFE[2]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai4Golongan:
-          personilFE[3]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai5Golongan:
-          personilFE[4]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
         pegawai1Jabatan:
           personilFE[0]?.pegawai?.jabatan || "TIDAK ADA JABATAN !",
         pegawai2Jabatan:
@@ -1977,11 +1895,7 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: profile },
-                ],
+                include: [{ model: profile }],
               },
               {
                 model: status,
@@ -2165,9 +2079,6 @@ module.exports = {
                     where: { id: 1 },
                     required: true,
                   },
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
                 ],
               },
               { model: status },
@@ -2200,11 +2111,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: indukUnitKerja,
@@ -2227,11 +2133,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_KPA",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
             ],
           },
@@ -2245,11 +2146,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_notaDinas",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: daftarUnitKerja,
@@ -2580,34 +2476,6 @@ module.exports = {
         pegawai4Nama: personilFE[3]?.pegawai?.nama || "TIDAK ADA PEGAWAI !",
         pegawai5Nama: personilFE[4]?.pegawai?.nama || "TIDAK ADA PEGAWAI !",
 
-        pegawai1Tingkatan: personilFE[0]?.pegawai?.daftarTingkatan.tingkatan,
-        pegawai2Tingkatan:
-          personilFE[1]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai3Tingkatan:
-          personilFE[2]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai4Tingkatan:
-          personilFE[3]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai5Tingkatan:
-          personilFE[4]?.pegawai?.daftarTingkatan.tingkatan ||
-          "TIDAK ADA PEGAWAI !",
-
-        pegawai1Pangkat: personilFE[0]?.pegawai?.daftarPangkat.pangkat,
-        pegawai2Pangkat:
-          personilFE[1]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai3Pangkat:
-          personilFE[2]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai4Pangkat:
-          personilFE[3]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-        pegawai5Pangkat:
-          personilFE[4]?.pegawai?.daftarPangkat.pangkat ||
-          "TIDAK ADA PEGAWAI !",
-
         noSpd1: noSpd[0]?.nomorSPD || "TIDAK ADA NOMOR",
 
         noSpd2: noSpd[1]?.nomorSPD || "TIDAK ADA NOMOR",
@@ -2617,21 +2485,7 @@ module.exports = {
         noSpd4: noSpd[3]?.nomorSPD || "TIDAK ADA NOMOR",
 
         noSpd5: noSpd[4]?.nomorSPD || "TIDAK ADA NOMOR",
-        pegawai1Golongan:
-          personilFE[0]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai2Golongan:
-          personilFE[1]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai3Golongan:
-          personilFE[2]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai4Golongan:
-          personilFE[3]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
-        pegawai5Golongan:
-          personilFE[4]?.pegawai?.daftarGolongan.golongan ||
-          "TIDAK ADA GOLONGAN !!",
+
         pegawai1Jabatan:
           personilFE[0]?.pegawai?.jabatan || "TIDAK ADA JABATAN !",
         pegawai2Jabatan:
@@ -2832,10 +2686,7 @@ module.exports = {
         noNotDis,
         ttdSurtTugJabatan: dataTtdSurTug.jabatan,
         ttdNotDinNama: dataTtdNotaDinas.pegawai_notaDinas.nama,
-        ttdNotDinPangkat:
-          dataTtdNotaDinas.pegawai_notaDinas.daftarPangkat.pangkat,
-        ttdNotDinGolongan:
-          dataTtdNotaDinas.pegawai_notaDinas.daftarGolongan.golongan,
+
         ttdNotDinJabatan: dataTtdNotaDinas.jabatan,
         ttdNotDinNip: `NIP. ${dataTtdNotaDinas.pegawai_notaDinas.nip}`,
         sumber,
@@ -2982,12 +2833,7 @@ module.exports = {
             include: [
               {
                 model: pegawai,
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                  { model: profesi, as: "profesi" },
-                ],
+                include: [{ model: profesi, as: "profesi" }],
               },
               { model: status },
             ],
@@ -3031,11 +2877,7 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
+                include: [],
               },
               {
                 model: indukUnitKerja,
@@ -3059,11 +2901,7 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_KPA",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
+                include: [],
               },
             ],
           },
@@ -3078,11 +2916,6 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
                 as: "pegawai_notaDinas",
-                include: [
-                  { model: daftarPangkat, as: "daftarPangkat" },
-                  { model: daftarGolongan, as: "daftarGolongan" },
-                  { model: daftarTingkatan, as: "daftarTingkatan" },
-                ],
               },
               {
                 model: daftarUnitKerja,

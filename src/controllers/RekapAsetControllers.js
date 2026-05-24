@@ -12,6 +12,11 @@ const {
 
 const { Op, fn, col } = require("sequelize");
 
+const isKeluarMutasi = (stokKeluarRow) => {
+  const tujuan = stokKeluarRow?.tujuan || "";
+  return tujuan.toLowerCase().startsWith("mutasi ke");
+};
+
 module.exports = {
   getRekapAdminPersediaan: async (req, res) => {
     try {
@@ -99,7 +104,9 @@ module.exports = {
             .map((p) => {
               let stokAwal = 0;
               let masukDalamRange = 0;
+              let mutasiMasukDalamRange = 0;
               let keluarDalamRange = 0;
+              let mutasiKeluarDalamRange = 0;
 
               // Hitung stok awal (sebelum tanggalAwal)
               p.stokMasuks.forEach((sm) => {
@@ -118,20 +125,27 @@ module.exports = {
                 }
               });
 
-              // Hitung stok masuk dalam periode
               p.stokMasuks.forEach((sm) => {
                 const tglMasuk = new Date(sm.tanggal);
+
                 if (tglMasuk >= tanggalAwal && tglMasuk <= tanggalAkhir) {
-                  masukDalamRange += sm.jumlah;
+                  if (sm.mutasiPersediaanId) {
+                    mutasiMasukDalamRange += sm.jumlah;
+                  } else {
+                    masukDalamRange += sm.jumlah;
+                  }
                 }
               });
 
-              // Hitung stok keluar dalam periode
               p.stokMasuks.forEach((sm) => {
                 sm.stokKeluars.forEach((sk) => {
                   const tglKeluar = new Date(sk.tanggal);
                   if (tglKeluar >= tanggalAwal && tglKeluar <= tanggalAkhir) {
-                    keluarDalamRange += sk.jumlah;
+                    if (isKeluarMutasi(sk)) {
+                      mutasiKeluarDalamRange += sk.jumlah;
+                    } else {
+                      keluarDalamRange += sk.jumlah;
+                    }
                   }
                 });
               });
@@ -165,37 +179,47 @@ module.exports = {
                   stokAwalStokMasuk = sm.jumlah - totalKeluarSebelumPeriode;
                 }
 
-                // Hitung stok masuk dalam periode laporan
                 let stokMasukDalamPeriode = 0;
+                let mutasiMasukDalamPeriode = 0;
                 if (tglMasukSM >= tanggalAwal && tglMasukSM <= tanggalAkhir) {
-                  stokMasukDalamPeriode = sm.jumlah;
+                  if (sm.mutasiPersediaanId) {
+                    mutasiMasukDalamPeriode = sm.jumlah;
+                  } else {
+                    stokMasukDalamPeriode = sm.jumlah;
+                  }
                 }
 
-                // Hitung stok keluar dalam periode laporan
-                const stokKeluarDalamPeriode = sm.stokKeluars
-                  ? sm.stokKeluars
-                      .filter((sk) => {
-                        const tglKeluar = new Date(sk.tanggal);
-                        return (
-                          tglKeluar >= tanggalAwal && tglKeluar <= tanggalAkhir
-                        );
-                      })
-                      .reduce((sum, sk) => sum + sk.jumlah, 0)
-                  : 0;
+                const keluarDalamPeriodeList = sm.stokKeluars
+                  ? sm.stokKeluars.filter((sk) => {
+                      const tglKeluar = new Date(sk.tanggal);
+                      return (
+                        tglKeluar >= tanggalAwal && tglKeluar <= tanggalAkhir
+                      );
+                    })
+                  : [];
+
+                const mutasiKeluarDalamPeriode = keluarDalamPeriodeList
+                  .filter(isKeluarMutasi)
+                  .reduce((sum, sk) => sum + sk.jumlah, 0);
+
+                const stokKeluarDalamPeriode = keluarDalamPeriodeList
+                  .filter((sk) => !isKeluarMutasi(sk))
+                  .reduce((sum, sk) => sum + sk.jumlah, 0);
 
                 // Hitung stok akhir
                 const stokAkhirStokMasuk =
                   stokAwalStokMasuk +
-                  stokMasukDalamPeriode -
-                  stokKeluarDalamPeriode;
+                  stokMasukDalamPeriode +
+                  mutasiMasukDalamPeriode -
+                  stokKeluarDalamPeriode -
+                  mutasiKeluarDalamPeriode;
 
-                // Hanya tampilkan stokMasuk yang:
-                // 1. Masih tersisa (stokAkhirStokMasuk > 0), ATAU
-                // 2. Ada aktivitas dalam periode laporan (stokMasukDalamPeriode > 0 ATAU stokKeluarDalamPeriode > 0)
                 if (
                   stokAkhirStokMasuk > 0 ||
                   stokMasukDalamPeriode > 0 ||
-                  stokKeluarDalamPeriode > 0
+                  mutasiMasukDalamPeriode > 0 ||
+                  stokKeluarDalamPeriode > 0 ||
+                  mutasiKeluarDalamPeriode > 0
                 ) {
                   // Hitung total untuk rata-rata harga satuan (hanya dari stok yang tersisa)
                   totalHargaSatuan +=
@@ -207,10 +231,14 @@ module.exports = {
                     id: sm.id,
                     jumlah: stokAwal === 0 ? sm.jumlah : stokAkhirStokMasuk, // Periode pertama: jumlah asli, periode berikutnya: sisaStok
                     sisaStok: stokAkhirStokMasuk, // Tambahkan informasi sisa stok
-                    stokAwal: stokAwalStokMasuk, // Stok awal untuk stokMasuk ini
-                    stokMasuk: stokMasukDalamPeriode, // Jumlah stok yang masuk di periode laporan
-                    stokKeluar: stokKeluarDalamPeriode, // Total stok yang keluar di periode laporan
-                    stokAkhir: stokAkhirStokMasuk, // Stok akhir untuk stokMasuk ini
+                    stokAwal: stokAwalStokMasuk,
+                    stokMasuk: stokMasukDalamPeriode,
+                    mutasiMasuk: mutasiMasukDalamPeriode,
+                    stokKeluar: stokKeluarDalamPeriode,
+                    mutasiKeluar: mutasiKeluarDalamPeriode,
+                    stokAkhir: stokAkhirStokMasuk,
+                    isMutasi: !!sm.mutasiPersediaanId,
+                    mutasiPersediaanId: sm.mutasiPersediaanId || null,
                     hargaSatuan: sm.hargaSatuan || 0,
                     tanggal: sm.tanggal,
                     keterangan: sm.keterangan,
@@ -260,7 +288,12 @@ module.exports = {
                   ? Math.round(totalHargaSatuan / totalStokMasuk)
                   : 0;
 
-              const stokAkhir = stokAwal + masukDalamRange - keluarDalamRange;
+              const stokAkhir =
+                stokAwal +
+                masukDalamRange +
+                mutasiMasukDalamRange -
+                keluarDalamRange -
+                mutasiKeluarDalamRange;
 
               // Buat kodeBarang gabungan
               let kodeBarangGabungan = "";
@@ -300,7 +333,9 @@ module.exports = {
                 kodeBarangGabungan: kodeBarangGabungan,
                 stokAwal,
                 masuk: masukDalamRange,
+                mutasiMasuk: mutasiMasukDalamRange,
                 keluar: keluarDalamRange,
+                mutasiKeluar: mutasiKeluarDalamRange,
                 stokAkhir,
                 rataRataHargaSatuan,
                 detailStokMasuk: stokMasukInfo,
@@ -313,8 +348,12 @@ module.exports = {
             })
             .filter(
               (barang) =>
-                barang.stokAkhir > 0 || barang.masuk > 0 || barang.keluar > 0
-            ), // Hanya tampilkan yang ada aktivitas
+                barang.stokAkhir > 0 ||
+                barang.masuk > 0 ||
+                barang.mutasiMasuk > 0 ||
+                barang.keluar > 0 ||
+                barang.mutasiKeluar > 0
+            ),
         };
       });
 

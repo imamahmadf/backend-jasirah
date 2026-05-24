@@ -22,18 +22,6 @@ module.exports = (sequelize, DataTypes) => {
         as: "unitKerjaLama",
       });
 
-      // Relasi dengan golongan
-      this.belongsTo(models.daftarGolongan, {
-        foreignKey: "golonganId",
-        as: "golongan",
-      });
-
-      // Relasi dengan pangkat
-      this.belongsTo(models.daftarPangkat, {
-        foreignKey: "pangkatId",
-        as: "pangkat",
-      });
-
       // Relasi dengan profesi lama
       this.belongsTo(models.profesi, {
         foreignKey: "profesiLamaId",
@@ -47,14 +35,13 @@ module.exports = (sequelize, DataTypes) => {
       tanggal: DataTypes.DATE,
       keterangan: DataTypes.STRING,
       unitKerjaLamaId: DataTypes.INTEGER,
-      golonganId: DataTypes.INTEGER,
+
       profesiLamaId: DataTypes.INTEGER,
-      pangkatId: DataTypes.INTEGER,
     },
     {
       sequelize,
       modelName: "riwayatPegawai",
-    }
+    },
   );
   return riwayatPegawai;
 };

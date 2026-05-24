@@ -4,7 +4,7 @@ const ttdNotaDinas = [
     id: 1,
     jabatan: "Plh. Kabid",
     unitKerjaId: 1,
-    pegawaiId: 6,
+    pegawaiId: 3,
 
     createdAt: currentDate,
     updatedAt: currentDate,
@@ -23,15 +23,6 @@ const ttdNotaDinas = [
     jabatan: "Plh. kabid 2",
     unitKerjaId: 1,
     pegawaiId: 1,
-
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 4,
-    jabatan: "Plh. kabid 3",
-    unitKerjaId: 5,
-    pegawaiId: 3,
 
     createdAt: currentDate,
     updatedAt: currentDate,

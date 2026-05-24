@@ -30,18 +30,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "asalPegawaiId",
         as: "pegawaiAsal",
       });
-      this.belongsTo(models.daftarTingkatan, {
-        foreignKey: "tingkatanId",
-        as: "daftarTingkatan",
-      });
-      this.belongsTo(models.daftarPangkat, {
-        foreignKey: "pangkatId",
-        as: "daftarPangkat",
-      });
-      this.belongsTo(models.daftarGolongan, {
-        foreignKey: "golonganId",
-        as: "daftarGolongan",
-      });
+
       this.belongsTo(models.statusPegawai, {
         foreignKey: "statusPegawaiId",
         as: "statusPegawai",
@@ -81,6 +70,9 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "pegawaiId",
         as: "suratKeluars",
       });
+      this.hasMany(models.pegawaiTunjangan);
+      this.hasMany(models.payroll);
+      this.hasMany(models.pegawaiPotongan);
     }
   }
   pegawai.init(
@@ -89,20 +81,21 @@ module.exports = (sequelize, DataTypes) => {
       nip: DataTypes.STRING,
       nik: DataTypes.STRING,
       pendidikan: DataTypes.STRING,
-      tingkatanId: DataTypes.INTEGER,
-      pangkatId: DataTypes.INTEGER,
-      golonganId: DataTypes.INTEGER,
+      // tingkatanId: DataTypes.INTEGER,
+      // pangkatId: DataTypes.INTEGER,
+      // golonganId: DataTypes.INTEGER,
       jabatan: DataTypes.STRING,
       nomorRekening: DataTypes.STRING,
       unitKerjaId: DataTypes.INTEGER,
       statusPegawaiId: DataTypes.INTEGER,
       profesiId: DataTypes.INTEGER,
       tanggalTMT: DataTypes.DATE,
+      gajiPokok: DataTypes.INTEGER,
     },
     {
       sequelize,
       modelName: "pegawai",
-    }
+    },
   );
   return pegawai;
 };

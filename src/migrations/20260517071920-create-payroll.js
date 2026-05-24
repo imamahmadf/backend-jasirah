@@ -2,14 +2,17 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('daftarGolongans', {
+    await queryInterface.createTable('payrolls', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      golongan: {
+      pegawaiId: {
+        type: Sequelize.INTEGER
+      },
+      periode: {
         type: Sequelize.STRING
       },
       createdAt: {
@@ -23,6 +26,6 @@ module.exports = {
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable('daftarGolongans');
+    await queryInterface.dropTable('payrolls');
   }
 };

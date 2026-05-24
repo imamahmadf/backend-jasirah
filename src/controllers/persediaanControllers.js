@@ -6,6 +6,7 @@ const {
   rinObPersediaan,
   obPersediaan,
   laporanPersediaan,
+  sumberDana,
 } = require("../models");
 
 const { Op, fn, col, literal } = require("sequelize");
@@ -223,21 +224,34 @@ module.exports = {
       sumberDanaId,
       satuanPersediaanId,
     } = req.body;
-    console.log(req.body);
+
+    const toInt = (val) => {
+      if (val === "" || val == null || val === undefined) return null;
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? null : n;
+    };
+
     try {
+      const filePath = "persediaan";
+      let foto = null;
+      if (req.file) {
+        foto = `/${filePath}/${req.file.filename}`;
+      }
+
       const result = await stokMasuk.create({
-        persediaanId,
-        unitKerjaId,
-        jumlah,
-        hargaSatuan: harga,
+        persediaanId: toInt(persediaanId),
+        unitKerjaId: toInt(unitKerjaId),
+        jumlah: toInt(jumlah),
+        hargaSatuan: toInt(harga),
         tanggal,
-        keterangan,
-        spesifikasi,
-        laporanPersediaanId,
-        nomorPesanan,
-        sumberDanaId,
-        suratPesananId,
-        satuanPersediaanId,
+        keterangan: keterangan || null,
+        spesifikasi: spesifikasi || null,
+        laporanPersediaanId: toInt(laporanPersediaanId),
+        nomorPesanan: toInt(nomorPesanan),
+        sumberDanaId: toInt(sumberDanaId),
+        suratPesananId: toInt(suratPesananId),
+        satuanPersediaanId: toInt(satuanPersediaanId),
+        foto,
       });
 
       return res.status(200).json({
@@ -247,7 +261,7 @@ module.exports = {
       console.error(err);
       return res.status(500).json({
         success: false,
-        message: "Gagal mengambil data kendaraan dan pegawai",
+        message: "Gagal menyimpan stok masuk",
         error: err.toString(),
       });
     }
@@ -266,15 +280,16 @@ module.exports = {
       });
 
       // 2. Filter data yang jumlah stokMasuk - stokKeluar tidak sama dengan 0
-      const filteredResult = allStokMasuk.filter((stok) => {
-        const totalKeluar = stok.stokKeluars
-          ? stok.stokKeluars.reduce((sum, keluar) => sum + keluar.jumlah, 0)
-          : 0;
-        const sisaStok = stok.jumlah - totalKeluar;
-        return sisaStok > 0;
-      });
+      const filteredResult = allStokMasuk
+        .map((stok) => {
+          const totalKeluar = stok.stokKeluars
+            ? stok.stokKeluars.reduce((sum, keluar) => sum + keluar.jumlah, 0)
+            : 0;
+          const sisaStok = stok.jumlah - totalKeluar;
+          return { ...stok.toJSON(), sisaStok, totalKeluar };
+        })
+        .filter((stok) => stok.sisaStok > 0);
 
-      // 3. Implementasi pagination manual
       const totalRows = filteredResult.length;
       const totalPage = Math.ceil(totalRows / limit);
       const result = filteredResult.slice(offset, offset + limit);
@@ -505,6 +520,7 @@ module.exports = {
           "suratPesananId",
           "sumberDanaId",
           "hargaSatuan",
+          "foto",
         ],
         raw: true,
       });
@@ -538,7 +554,7 @@ module.exports = {
 
         if (!stokMasukInfo) continue;
 
-        const { persediaanId, suratPesananId, sumberDanaId, hargaSatuan } =
+        const { persediaanId, suratPesananId, sumberDanaId, hargaSatuan, foto } =
           stokMasukInfo;
 
         // Stok awal = sisa dari stokMasuk.id yang sama
@@ -547,11 +563,10 @@ module.exports = {
         const stokMasukTWIni = mapStokMasukTWIni.get(stokMasukKey) || 0;
         // Total masuk = stok awal + stok masuk TW ini
         const totalMasuk = stokAwal + stokMasukTWIni;
-        const keluarAkhir = mapKeluarAkhir.get(stokMasukKey) || 0;
-        const saldoAkhir = totalMasuk - keluarAkhir;
 
         const keluarArr = mapKeluarPeriode.get(stokMasukKey) || [];
         const totalKeluarPeriode = keluarArr.reduce((s, x) => s + x.jumlah, 0);
+        const saldoAkhir = totalMasuk - totalKeluarPeriode;
 
         // Tampilkan jika ada stok atau ada transaksi keluar
         if (totalMasuk > 0 || keluarArr.length > 0) {
@@ -569,7 +584,8 @@ module.exports = {
             suratPesananId: suratPesananId,
             sumberDanaId: sumberDanaId,
             hargaSatuan: hargaSatuan,
-            stokAwal: stokAwal, // ← Stok sisa dari TW sebelumnya dengan stokMasuk.id yang sama
+            foto: foto || null,
+            stokAwal: stokAwal,
             stokMasuk: stokMasukTWIni, // ← Stok baru yang masuk di TW ini dengan stokMasuk.id yang sama
             jumlahMasuk: totalMasuk, // ← Total stok (stok awal + stok masuk TW ini)
             stokKeluar: keluarArr,
@@ -595,8 +611,22 @@ module.exports = {
     const { jumlah, tujuan, stokMasukId, laporanPersediaanId, tanggal } =
       req.body;
 
-    console.log(req.body);
     try {
+      const masuk = await stokMasuk.findByPk(stokMasukId);
+      if (!masuk) {
+        return res.status(404).json({ message: "Stok masuk tidak ditemukan" });
+      }
+
+      const totalKeluar =
+        (await stokKeluar.sum("jumlah", { where: { stokMasukId } })) || 0;
+      const sisaStok = masuk.jumlah - totalKeluar;
+
+      if (Number(jumlah) > sisaStok) {
+        return res.status(400).json({
+          message: `Jumlah keluar melebihi sisa stok. Sisa tersedia: ${sisaStok}`,
+        });
+      }
+
       const result = await stokKeluar.create({
         jumlah,
         tujuan,
@@ -609,6 +639,241 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ message: err.toString(), code: 500 });
+    }
+  },
+
+  getTrackingList: async (req, res) => {
+    const unitKerjaId = req.params.unitKerjaId;
+    const { q } = req.query;
+
+    try {
+      const persediaanWhere = q
+        ? { nama: { [Op.like]: `%${q}%` } }
+        : undefined;
+
+      const masukRows = await stokMasuk.findAll({
+        where: { unitKerjaId },
+        include: [
+          {
+            model: persediaan,
+            where: persediaanWhere,
+            include: [{ model: tipePersediaan, attributes: ["id", "nama", "kodeRekening"] }],
+          },
+          {
+            model: stokKeluar,
+            attributes: ["jumlah", "tanggal"],
+            required: false,
+          },
+        ],
+        order: [["tanggal", "DESC"]],
+      });
+
+      const grouped = new Map();
+
+      masukRows.forEach((sm) => {
+        const pid = sm.persediaanId;
+        if (!grouped.has(pid)) {
+          grouped.set(pid, {
+            persediaanId: pid,
+            kodeBarang: sm.persediaan?.kodeBarang,
+            nama: sm.persediaan?.nama,
+            NUSP: sm.persediaan?.NUSP,
+            tipePersediaan: sm.persediaan?.tipePersediaan || null,
+            totalMasuk: 0,
+            totalKeluar: 0,
+            sisaStok: 0,
+            batchCount: 0,
+            lastActivity: null,
+          });
+        }
+
+        const row = grouped.get(pid);
+        const keluarBatch = sm.stokKeluars
+          ? sm.stokKeluars.reduce((sum, k) => sum + (k.jumlah || 0), 0)
+          : 0;
+
+        row.totalMasuk += sm.jumlah || 0;
+        row.totalKeluar += keluarBatch;
+        row.sisaStok += (sm.jumlah || 0) - keluarBatch;
+        row.batchCount += 1;
+
+        const dates = [new Date(sm.tanggal)];
+        if (sm.stokKeluars?.length) {
+          sm.stokKeluars.forEach((k) => dates.push(new Date(k.tanggal)));
+        }
+        const latest = new Date(Math.max(...dates.map((d) => d.getTime())));
+        if (!row.lastActivity || latest > new Date(row.lastActivity)) {
+          row.lastActivity = latest;
+        }
+      });
+
+      const result = Array.from(grouped.values()).sort((a, b) =>
+        (a.nama || "").localeCompare(b.nama || "")
+      );
+
+      return res.status(200).json({
+        success: true,
+        unitKerjaId: Number(unitKerjaId),
+        result,
+        totalRows: result.length,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengambil tracking persediaan",
+        error: err.toString(),
+      });
+    }
+  },
+
+  getTrackingDetail: async (req, res) => {
+    const { persediaanId } = req.params;
+    const { unitKerjaId } = req.query;
+
+    if (!unitKerjaId) {
+      return res.status(400).json({ message: "unitKerjaId wajib disertakan" });
+    }
+
+    try {
+      const barang = await persediaan.findByPk(persediaanId, {
+        include: [{ model: tipePersediaan, attributes: ["id", "nama", "kodeRekening"] }],
+      });
+
+      if (!barang) {
+        return res.status(404).json({ message: "Persediaan tidak ditemukan" });
+      }
+
+      const batches = await stokMasuk.findAll({
+        where: { persediaanId, unitKerjaId },
+        include: [
+          {
+            model: stokKeluar,
+            include: [
+              {
+                model: laporanPersediaan,
+                attributes: ["id", "tanggalAwal", "tanggalAkhir", "status"],
+                required: false,
+              },
+            ],
+          },
+          {
+            model: sumberDana,
+            attributes: ["id", "sumber"],
+            required: false,
+          },
+        ],
+        order: [
+          ["tanggal", "ASC"],
+          ["id", "ASC"],
+        ],
+      });
+
+      if (batches.length === 0) {
+        return res.status(404).json({
+          message: "Tidak ada riwayat stok untuk persediaan ini di unit kerja tersebut",
+        });
+      }
+
+      let totalMasuk = 0;
+      let totalKeluar = 0;
+      const batchDetails = [];
+      const riwayatKeluar = [];
+      const timeline = [];
+
+      batches.forEach((sm) => {
+        const keluarList = sm.stokKeluars || [];
+        const keluarBatch = keluarList.reduce(
+          (sum, k) => sum + (k.jumlah || 0),
+          0
+        );
+        const sisaBatch = (sm.jumlah || 0) - keluarBatch;
+
+        totalMasuk += sm.jumlah || 0;
+        totalKeluar += keluarBatch;
+
+        batchDetails.push({
+          id: sm.id,
+          tanggal: sm.tanggal,
+          jumlah: sm.jumlah,
+          hargaSatuan: sm.hargaSatuan,
+          spesifikasi: sm.spesifikasi,
+          keterangan: sm.keterangan,
+          nomorPesanan: sm.nomorPesanan,
+          foto: sm.foto,
+          sumberDana: sm.sumberDana || null,
+          totalKeluar: keluarBatch,
+          sisaStok: sisaBatch,
+          keluar: keluarList.map((k) => ({
+            id: k.id,
+            jumlah: k.jumlah,
+            tanggal: k.tanggal,
+            tujuan: k.tujuan,
+            keterangan: k.keterangan,
+            laporanPersediaan: k.laporanPersediaan || null,
+          })),
+        });
+
+        timeline.push({
+          tipe: "masuk",
+          tanggal: sm.tanggal,
+          jumlah: sm.jumlah,
+          stokMasukId: sm.id,
+          keterangan: sm.keterangan,
+          spesifikasi: sm.spesifikasi,
+        });
+
+        keluarList.forEach((k) => {
+          riwayatKeluar.push({
+            id: k.id,
+            stokMasukId: sm.id,
+            jumlah: k.jumlah,
+            tanggal: k.tanggal,
+            tujuan: k.tujuan,
+            keterangan: k.keterangan,
+            laporanPersediaan: k.laporanPersediaan || null,
+          });
+
+          timeline.push({
+            tipe: "keluar",
+            tanggal: k.tanggal,
+            jumlah: k.jumlah,
+            stokMasukId: sm.id,
+            tujuan: k.tujuan,
+            keterangan: k.keterangan,
+          });
+        });
+      });
+
+      timeline.sort(
+        (a, b) => new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime()
+      );
+
+      riwayatKeluar.sort(
+        (a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime()
+      );
+
+      return res.status(200).json({
+        success: true,
+        unitKerjaId: Number(unitKerjaId),
+        persediaan: barang,
+        ringkasan: {
+          totalMasuk,
+          totalKeluar,
+          sisaStok: totalMasuk - totalKeluar,
+          batchCount: batches.length,
+        },
+        batches: batchDetails,
+        riwayatKeluar,
+        timeline,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengambil detail tracking persediaan",
+        error: err.toString(),
+      });
     }
   },
 };

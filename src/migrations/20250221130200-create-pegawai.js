@@ -15,15 +15,7 @@ module.exports = {
       nip: {
         type: Sequelize.STRING,
       },
-      tingkatanId: {
-        type: Sequelize.INTEGER,
-      },
-      pangkatId: {
-        type: Sequelize.INTEGER,
-      },
-      golonganId: {
-        type: Sequelize.INTEGER,
-      },
+
       jabatan: {
         type: Sequelize.STRING,
       },

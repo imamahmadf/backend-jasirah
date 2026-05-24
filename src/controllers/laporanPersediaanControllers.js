@@ -103,59 +103,82 @@ module.exports = {
   getDetailLaporan: async (req, res) => {
     const id = req.params.id;
     const unitKerjaId = req.query.unitKerjaId;
-    console.log(req.query, id, "CEKKKKKKKK");
 
     try {
-      // 1. Ambil data laporan persediaan dari DB lokal
-      const result = await laporanPersediaan.findAll({
-        where: { id },
+      const stokMasukInclude = {
+        model: stokMasuk,
+        attributes: [
+          "id",
+          "persediaanId",
+          "unitKerjaId",
+          "jumlah",
+          "hargaSatuan",
+          "tanggal",
+          "spesifikasi",
+          "keterangan",
+          "nomorPesanan",
+          "laporanPersediaanId",
+          "sumberDanaId",
+          "suratPesananId",
+          "satuanPersediaanId",
+          "foto",
+        ],
         include: [
           {
-            model: stokMasuk,
+            model: persediaan,
             include: [
               {
-                model: persediaan,
+                model: tipePersediaan,
                 include: [
                   {
-                    model: tipePersediaan,
-                    include: [
-                      {
-                        model: rinObPersediaan,
-                        include: [{ model: obPersediaan }],
-                      },
-                    ],
+                    model: rinObPersediaan,
+                    include: [{ model: obPersediaan }],
                   },
                 ],
               },
-              { model: sumberDana, attributes: ["id", "sumber"] },
-              { model: suratPesanan, attributes: ["id", "nomor"] },
-              { model: satuanPersediaan },
             ],
-            where: { unitKerjaId },
           },
+          { model: sumberDana, attributes: ["id", "sumber"] },
+          { model: suratPesanan, attributes: ["id", "nomor"] },
+          { model: satuanPersediaan },
+          { model: daftarUnitKerja, attributes: ["id", "unitKerja"] },
         ],
+      };
+
+      if (unitKerjaId) {
+        stokMasukInclude.where = { unitKerjaId };
+      }
+
+      const result = await laporanPersediaan.findAll({
+        where: { id },
+        include: [stokMasukInclude],
       });
 
       const resultSumberDana = await sumberDana.findAll({
         attributes: ["id", "sumber"],
       });
+
+      const suratPesananInclude = unitKerjaId
+        ? [
+            {
+              model: indukUnitKerja,
+              attributes: ["id"],
+              required: true,
+              include: [
+                {
+                  model: daftarUnitKerja,
+                  attributes: ["id"],
+                  required: true,
+                  where: { id: unitKerjaId },
+                },
+              ],
+            },
+          ]
+        : [];
+
       const resultSuratPesanan = await suratPesanan.findAll({
         attributes: ["id", "nomor"],
-        include: [
-          {
-            model: indukUnitKerja,
-            attributes: ["id"],
-            required: true,
-            include: [
-              {
-                model: daftarUnitKerja,
-                attributes: ["id"],
-                required: true,
-                where: { id: unitKerjaId },
-              },
-            ],
-          },
-        ],
+        include: suratPesananInclude,
       });
 
       const resultSatuan = await satuanPersediaan.findAll({});

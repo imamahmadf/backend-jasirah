@@ -4,7 +4,7 @@ const currentDate = new Date();
 const profiles = [
   {
     id: 1,
-    nama: "admin dinkes",
+    nama: "admin Jasirah",
     userId: 1,
     unitKerjaId: 1,
     createdAt: currentDate,

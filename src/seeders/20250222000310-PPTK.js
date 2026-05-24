@@ -4,7 +4,7 @@ const PPTKs = [
     id: 1,
     jabatan: "pejabat pelaksana teknis",
     unitKerjaId: 1,
-    pegawaiId: 6,
+    pegawaiId: 4,
 
     createdAt: currentDate,
     updatedAt: currentDate,
@@ -14,24 +14,6 @@ const PPTKs = [
     jabatan: "pejabat pelaksana teknis",
     unitKerjaId: 1,
     pegawaiId: 2,
-
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 3,
-    jabatan: "pejabat pelaksana teknis",
-    unitKerjaId: 1,
-    pegawaiId: 1,
-
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 4,
-    jabatan: "pejabat pelaksana teknis",
-    unitKerjaId: 5,
-    pegawaiId: 3,
 
     createdAt: currentDate,
     updatedAt: currentDate,

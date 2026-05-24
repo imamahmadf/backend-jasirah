@@ -2,29 +2,34 @@
 
 const currentDate = new Date();
 const statusPegawais = [
-  { id: 1, status: "PNS", createdAt: currentDate, updatedAt: currentDate },
+  {
+    id: 1,
+    status: "Manajemen",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+  },
   {
     id: 2,
-    status: "CPNS",
+    status: "PKWTT",
     createdAt: currentDate,
     updatedAt: currentDate,
   },
   { id: 3, status: "P3K", createdAt: currentDate, updatedAt: currentDate },
   {
     id: 4,
-    status: "P3K Paruh Waktu",
+    status: "PKWWT",
     createdAt: currentDate,
     updatedAt: currentDate,
   },
   {
     id: 5,
-    status: "PJPL",
+    status: "Mingguan",
     createdAt: currentDate,
     updatedAt: currentDate,
   },
   {
     id: 6,
-    status: "Non Pegawai",
+    status: "Harian Lepas",
     createdAt: currentDate,
     updatedAt: currentDate,
   },

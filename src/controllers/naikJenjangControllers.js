@@ -2,9 +2,7 @@ const {
   pegawai,
   golongan,
   pangkat,
-  daftarTingkatan,
-  daftarGolongan,
-  daftarPangkat,
+
   daftarUnitKerja,
   dalamKota,
   profesi,
@@ -64,12 +62,6 @@ module.exports = {
               "tanggalTMT",
             ],
             include: [
-              {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
               {
                 model: profesi,
                 as: "profesi",
@@ -158,12 +150,6 @@ module.exports = {
             as: "pegawai",
             include: [
               {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
-              {
                 model: daftarUnitKerja,
                 as: "daftarUnitKerja",
                 attributes: ["id"],
@@ -204,7 +190,7 @@ module.exports = {
     try {
       const result = await usulanNaikJenjang.update(
         { catatan, status, nomorUsulan: status === "diterima" ? kode : null },
-        { where: { id } }
+        { where: { id } },
       );
       return res.status(200).json({ result });
     } catch (err) {
@@ -241,7 +227,7 @@ module.exports = {
       // Update field dinamis berdasarkan field_name
       await usulanNaikJenjang.update(
         { [field_name]: filePath },
-        { where: { id } }
+        { where: { id } },
       );
 
       res.json({
@@ -329,7 +315,7 @@ module.exports = {
       // update status laporanUsulanPegawai
       const result = await laporanUsulanPegawai.update(
         { status: "Tutup" },
-        { where: { id }, transaction } // transaction harus di sini
+        { where: { id }, transaction }, // transaction harus di sini
       );
 
       // hapus semua data usulanNaikJenjang
@@ -417,7 +403,7 @@ module.exports = {
           golonganId: parseInt(golonganId),
           tanggalTMT,
         },
-        { where: { id: pegawaiId }, transaction }
+        { where: { id: pegawaiId }, transaction },
       );
 
       // 5. Create riwayat pegawai dengan nilai yang benar
@@ -429,7 +415,7 @@ module.exports = {
           profesiLamaId,
           pangkatId: parseInt(pangkatId) - 1,
         },
-        { transaction } // Fixed: proper transaction parameter
+        { transaction }, // Fixed: proper transaction parameter
       );
 
       // 6. Commit transaction setelah semua operasi berhasil
@@ -495,16 +481,6 @@ module.exports = {
             where: whereCondition,
             order: [["nama", "ASC"]],
             include: [
-              {
-                model: daftarGolongan,
-                attributes: ["golongan", "id"],
-                as: "daftarGolongan",
-              },
-              {
-                model: daftarPangkat,
-                attributes: ["pangkat", "id"],
-                as: "daftarPangkat",
-              },
               {
                 model: profesi,
                 as: "profesi",

@@ -5,11 +5,8 @@ const {
   sequelize,
   role,
   pegawai,
-  indukUnitKerja,
+
   daftarUnitKerja,
-  daftarGolongan,
-  daftarPangkat,
-  daftarTingkatan,
   profesi,
   statusPegawai,
   rincianBPD,
@@ -17,6 +14,7 @@ const {
   usulanPegawai,
   pejabatVerifikator,
   indikatorPejabat,
+  indukUnitKerja,
 } = require("../models");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -126,7 +124,8 @@ module.exports = {
                       "id",
                       "kodeInduk",
                       "indukUnitKerja",
-                      "penomoran","keuangan"
+                      "penomoran",
+                      "keuangan",
                     ],
                   },
                 ],
@@ -223,12 +222,6 @@ module.exports = {
               "tanggalTMT",
             ],
             include: [
-              {
-                model: daftarTingkatan,
-                as: "daftarTingkatan",
-              },
-              { model: daftarGolongan, as: "daftarGolongan" },
-              { model: daftarPangkat, as: "daftarPangkat" },
               {
                 model: profesi,
                 as: "profesi",

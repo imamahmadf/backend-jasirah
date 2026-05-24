@@ -7,9 +7,7 @@ const {
   pejabatVerifikator,
   pegawai,
   indikatorPejabat,
-  daftarTingkatan,
-  daftarGolongan,
-  daftarPangkat,
+
   daftarUnitKerja,
   profesi,
   statusPegawai,
@@ -148,12 +146,6 @@ module.exports = {
         ],
         attributes: ["id", "nama", "nip", "jabatan", "pendidikan"],
         include: [
-          {
-            model: daftarTingkatan,
-            as: "daftarTingkatan",
-          },
-          { model: daftarGolongan, as: "daftarGolongan" },
-          { model: daftarPangkat, as: "daftarPangkat" },
           { model: profesi, as: "profesi" },
           { model: statusPegawai, as: "statusPegawai" },
           daftarUnitKerjaInclude,
@@ -549,7 +541,7 @@ module.exports = {
             tanggalAkhir: result.tanggalAkhir,
             kualitatifPJPLId: kual.id,
             realisasiPJPLId: result.id,
-          }))
+          })),
         );
       }
 
@@ -674,7 +666,16 @@ module.exports = {
           {
             model: hasilKerjaKualitatifPJPL,
             as: "hasilKerjaKualitatifPJPLs",
-            attributes: ["id", "tanggalAwal", "tanggalAkhir", "nilai", "catatan", "kualitatifPJPLId", "realisasiPJPLId", "pejabatVerifikatorId"],
+            attributes: [
+              "id",
+              "tanggalAwal",
+              "tanggalAkhir",
+              "nilai",
+              "catatan",
+              "kualitatifPJPLId",
+              "realisasiPJPLId",
+              "pejabatVerifikatorId",
+            ],
             include: [
               {
                 model: kualitatifPJPL,
@@ -1013,7 +1014,12 @@ module.exports = {
     const { nilai, catatan } = req.body;
 
     const nilaiNum = nilai != null ? parseFloat(nilai) : null;
-    if (nilaiNum === null || Number.isNaN(nilaiNum) || nilaiNum < 1 || nilaiNum > 10) {
+    if (
+      nilaiNum === null ||
+      Number.isNaN(nilaiNum) ||
+      nilaiNum < 1 ||
+      nilaiNum > 10
+    ) {
       return res.status(400).json({
         error: "Nilai harus angka antara 1 sampai 10.",
       });
@@ -1029,12 +1035,26 @@ module.exports = {
 
       const updateData = {
         nilai: Math.round(nilaiNum),
-        catatan: catatan != null && String(catatan).trim() !== "" ? String(catatan).trim() : null,
+        catatan:
+          catatan != null && String(catatan).trim() !== ""
+            ? String(catatan).trim()
+            : null,
       };
       await row.update(updateData);
 
       const result = await hasilKerjaKualitatifPJPL.findByPk(id, {
-        attributes: ["id", "tanggalAwal", "tanggalAkhir", "nilai", "catatan", "kualitatifPJPLId", "realisasiPJPLId", "pejabatVerifikatorId", "createdAt", "updatedAt"],
+        attributes: [
+          "id",
+          "tanggalAwal",
+          "tanggalAkhir",
+          "nilai",
+          "catatan",
+          "kualitatifPJPLId",
+          "realisasiPJPLId",
+          "pejabatVerifikatorId",
+          "createdAt",
+          "updatedAt",
+        ],
       });
       return res.status(200).json({ result });
     } catch (err) {
