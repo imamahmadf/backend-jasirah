@@ -21,6 +21,12 @@ const statusPembayarans = [
     id: 3,
     nama: "payble",
   },
+  {
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    id: 4,
+    nama: "receivable",
+  },
 ];
 
 /** @type {import('sequelize-cli').Migration} */

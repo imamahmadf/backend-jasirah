@@ -1,65 +1,79 @@
 "use strict";
 
 const currentDate = new Date();
-const jenisPengeluarans = [
+const rekanans = [
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 1,
-    nama: "pembelian",
+    nama: "Toko Madura",
   },
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 2,
-    nama: "gaji",
+    nama: "Gudang Jasirah",
   },
 
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 3,
-    nama: "entertain",
+    nama: "CV DZAKIYA/HJ SAIPUDIN",
   },
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 4,
-    nama: "kas bon",
+    nama: "FARAS JAYA (RUDI ASMORO)",
   },
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 5,
-    nama: "uang makan",
+    nama: "King Jaya",
   },
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 6,
-    nama: "fee",
+    nama: "Naraya Water",
   },
+
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 7,
-    nama: "aset",
+    nama: "TB KARSONO (BURHAN)",
   },
   {
     createdAt: currentDate,
     updatedAt: currentDate,
     id: 8,
-    nama: "lembur",
+    nama: "EDHIE GYPSUM",
+  },
+
+  {
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    id: 9,
+    nama: "TB ABUN JAYA",
+  },
+  {
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    id: 10,
+    nama: "DUNIA TEKNIK",
   },
 ];
 
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.bulkInsert("jenisPengeluarans", jenisPengeluarans, {});
+    await queryInterface.bulkInsert("rekanans", rekanans, {});
   },
 
   async down(queryInterface, Sequelize) {
-    await queryInterface.bulkDelete("jenisPengeluarans", null, {});
+    await queryInterface.bulkDelete("rekanans", null, {});
   },
 };

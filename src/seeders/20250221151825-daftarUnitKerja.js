@@ -2,29 +2,79 @@ const currentDate = new Date();
 const daftarUnitKerjas = [
   {
     id: "1",
-    unitKerja: "Kesekretariatan",
+    unitKerja: "Jasirah",
     indukUnitKerjaId: "1",
     createdAt: currentDate,
     updatedAt: currentDate,
-    kode: "SKRT.1",
+    kode: "JDB",
   },
 
   {
     id: "2",
-    unitKerja: "Divisi Keuangan",
+    unitKerja: "Grand Diza Residence",
     indukUnitKerjaId: "1",
     createdAt: currentDate,
     updatedAt: currentDate,
-    kode: "D.KEU",
+    kode: "GDR",
   },
 
   {
-    id: "8",
+    id: "3",
     unitKerja: "Koperasi Produsen Batanghari Patra Nusantara",
     indukUnitKerjaId: "2",
     createdAt: currentDate,
     updatedAt: currentDate,
     kode: "KPBPN",
+  },
+  {
+    id: "4",
+    unitKerja: "Tempino Dalam",
+    indukUnitKerjaId: "2",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "TEMD",
+  },
+  {
+    id: "5",
+    unitKerja: "Tempino Luar",
+    indukUnitKerjaId: "2",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "TEML",
+  },
+
+  {
+    id: "6",
+    unitKerja: "Koperasi Produsen Batanghari Sumber Energi",
+    indukUnitKerjaId: "3",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "KPBSE",
+  },
+
+  {
+    id: "7",
+    unitKerja: "Wilayah kerja Pertamina",
+    indukUnitKerjaId: "3",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "WKP",
+  },
+  {
+    id: "8",
+    unitKerja: "Burung Hantu",
+    indukUnitKerjaId: "4",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "BURHAN",
+  },
+  {
+    id: "9",
+    unitKerja: "Kantor",
+    indukUnitKerjaId: "1",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    kode: "KTR",
   },
 ];
 

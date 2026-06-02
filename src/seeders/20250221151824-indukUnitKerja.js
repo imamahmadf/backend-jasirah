@@ -16,6 +16,22 @@ const indukUnitKerjas = [
     createdAt: currentDate,
     updatedAt: currentDate,
   },
+  {
+    id: 3,
+    indukUnitKerja: "Koperasi Produsen Batanghari Sumber Energi",
+    kodeInduk: "KPBSE",
+    BLUDId: 2,
+    createdAt: currentDate,
+    updatedAt: currentDate,
+  },
+  {
+    id: 4,
+    indukUnitKerja: "Burung Hantu",
+    kodeInduk: "BURHAN",
+    BLUDId: 2,
+    createdAt: currentDate,
+    updatedAt: currentDate,
+  },
 ];
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
