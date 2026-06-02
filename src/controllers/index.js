@@ -38,6 +38,8 @@ const indikatorControllers = require("./indikatorControllers");
 const templateBPDControllers = require("./templateBPDControllers");
 const payrollControllers = require("./PayrollControllers");
 const mutasiPersediaanControllers = require("./mutasiPersediaanControllers");
+const presensiControllers = require("./presensiControllers");
+const pengeluaranControllers = require("./pengeluaranControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -79,4 +81,6 @@ module.exports = {
   templateBPDControllers,
   payrollControllers,
   mutasiPersediaanControllers,
+  presensiControllers,
+  pengeluaranControllers,
 };

@@ -43,7 +43,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "unitKerjaId",
       });
 
-      this.belongsTo(models.profile, {
+      this.hasMany(models.profile, {
         foreignKey: "unitKerjaId",
         as: "unitKerja_profile",
       });
@@ -105,6 +105,10 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "unitKerjaId",
         as: "presensis",
       });
+
+      this.hasMany(models.pengeluaran, {
+        foreignKey: "unitKerjaId",
+      });
     }
   }
   daftarUnitKerja.init(
@@ -122,7 +126,7 @@ module.exports = (sequelize, DataTypes) => {
     {
       sequelize,
       modelName: "daftarUnitKerja",
-    }
+    },
   );
   return daftarUnitKerja;
 };

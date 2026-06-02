@@ -1,5 +1,5 @@
 "use strict";
-const { Model } = require("sequelize");
+const { Model, DATE } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   class Presensi extends Model {
     /**
@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "unitKerjaId",
         as: "daftarUnitKerja",
       });
+      this.belongsTo(models.statusPresensi);
     }
   }
   Presensi.init(
@@ -28,6 +29,9 @@ module.exports = (sequelize, DataTypes) => {
       latitudePulang: DataTypes.DECIMAL,
       longitudePulang: DataTypes.DECIMAL,
       unitKerjaId: DataTypes.INTEGER,
+      statusPresensiId: DataTypes.INTEGER,
+      tanggal: DataTypes.DATE,
+      jamKerja: DataTypes.INTEGER,
     },
     {
       sequelize,

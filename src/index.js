@@ -47,6 +47,8 @@ const {
   templateBPDRouter,
   payrollRouter,
   mutasiPersediaanRouter,
+  presensiRouter,
+  pengeluaranRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -156,6 +158,8 @@ app.use("/api/indikator", indikatorRouter);
 app.use("/api/templateBPD", templateBPDRouter);
 app.use("/api/payroll", payrollRouter);
 app.use("/api/mutasi-persediaan", mutasiPersediaanRouter);
+app.use("/api/presensi", presensiRouter);
+app.use("/api/pengeluaran", pengeluaranRouter);
 
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);

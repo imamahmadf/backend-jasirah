@@ -73,6 +73,11 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.pegawaiTunjangan);
       this.hasMany(models.payroll);
       this.hasMany(models.pegawaiPotongan);
+      this.hasMany(models.pengeluaran);
+      this.hasMany(models.Presensi, {
+        foreignKey: "pegawaiId",
+        as: "presensis",
+      });
     }
   }
   pegawai.init(

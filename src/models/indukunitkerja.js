@@ -11,6 +11,7 @@ module.exports = (sequelize, DataTypes) => {
       // define association here
       this.belongsTo(models.BLUD);
       this.hasMany(models.suratPesanan);
+      this.hasMany(models.pengeluaran);
       this.hasMany(models.pengurusBarang);
       this.hasMany(models.bangunan);
       this.hasMany(models.bendahara, {
@@ -23,8 +24,8 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.daftarUnitKerja, {
         foreignKey: "indukUnitKerjaId",
       });
-      this.belongsTo(models.dalamKota);
-      this.belongsTo(models.daftarNomorSurat, {
+      this.hasMany(models.dalamKota, { foreignKey: "indukUnitKerjaId" });
+      this.hasMany(models.daftarNomorSurat, {
         foreignKey: "indukUnitKerjaId",
         as: "indukUnitKerja-nomorSurat",
       });

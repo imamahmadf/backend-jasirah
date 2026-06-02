@@ -1,116 +1,240 @@
-const { pegawai, presensi } = require("../models");
+const {
+  pegawai,
+  Presensi,
+  statusPegawai,
+  statusPresensi,
+  sequelize,
+  daftarUnitKerja,
+} = require("../models");
 const { Op } = require("sequelize");
 
-const HARI_MINGGU = [
-  { key: "senin", label: "Senin" },
-  { key: "selasa", label: "Selasa" },
-  { key: "rabu", label: "Rabu" },
-  { key: "kamis", label: "Kamis" },
-  { key: "jumat", label: "Jumat" },
-  { key: "sabtu", label: "Sabtu" },
-  { key: "minggu", label: "Minggu" },
-];
-
-const formatTanggal = (date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+const normalizePresensiInput = (body) => {
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.data)) return body.data;
+  if (body?.pegawaiId) return [body];
+  return [];
 };
 
-const getRentangMinggu = (tanggalRef) => {
-  const ref = new Date(tanggalRef);
-  const hari = ref.getDay();
-  const selisihSenin = hari === 0 ? -6 : 1 - hari;
+const toTanggalRange = (tanggal) => {
+  const startOfDay = new Date(`${tanggal}T00:00:00.000Z`);
+  if (Number.isNaN(startOfDay.getTime())) return null;
+  const endOfDay = new Date(`${tanggal}T23:59:59.999Z`);
+  return { startOfDay, endOfDay, tanggalDate: startOfDay };
+};
 
-  const senin = new Date(ref);
-  senin.setHours(0, 0, 0, 0);
-  senin.setDate(ref.getDate() + selisihSenin);
+const buildJamPayload = (item) => {
+  const payload = {};
+  if (item.tipeJam === "jamMasuk" && item.jamMasuk) {
+    payload.jamMasuk = new Date(item.jamMasuk);
+  }
+  if (item.tipeJam === "jamPulang" && item.jamPulang) {
+    payload.jamPulang = new Date(item.jamPulang);
+  }
+  if (!item.tipeJam) {
+    if (item.jamMasuk) payload.jamMasuk = new Date(item.jamMasuk);
+    if (item.jamPulang) payload.jamPulang = new Date(item.jamPulang);
+  }
+  if (item.statusPresensiId != null) {
+    payload.statusPresensiId = Number(item.statusPresensiId);
+  }
+  return payload;
+};
 
-  const minggu = new Date(senin);
-  minggu.setDate(senin.getDate() + 6);
-  minggu.setHours(23, 59, 59, 999);
+const hitungJamKerja = (jamMasuk, jamPulang) => {
+  if (!jamMasuk || !jamPulang) return null;
 
-  return { senin, minggu };
+  const masuk = new Date(jamMasuk);
+  const pulang = new Date(jamPulang);
+  if (Number.isNaN(masuk.getTime()) || Number.isNaN(pulang.getTime())) {
+    return null;
+  }
+
+  const selisihMs = pulang.getTime() - masuk.getTime();
+  if (selisihMs < 0) return null;
+
+  return Math.round(selisihMs / (1000 * 60));
+};
+
+const enrichPresensiJamKerja = (presensi) => {
+  if (!presensi) return presensi;
+
+  const data = presensi.toJSON ? presensi.toJSON() : { ...presensi };
+  data.jamKerja =
+    data.jamKerja ?? hitungJamKerja(data.jamMasuk, data.jamPulang);
+  return data;
 };
 
 module.exports = {
-  getPresensi: async (req, res) => {
+  getDetailPresensiMinggunan: async (req, res) => {
+    const tanggal = req.query.tanggal;
+    if (!tanggal) {
+      return res.status(400).json({
+        message: "Query parameter `tanggal` wajib diisi.",
+        code: 400,
+      });
+    }
+
     try {
-      const unitKerjaId = req.query.unitKerjaId
-        ? parseInt(req.query.unitKerjaId)
-        : null;
-      const tanggalRef = req.query.tanggal
-        ? new Date(req.query.tanggal)
-        : new Date();
+      const startOfDay = new Date(`${tanggal}T00:00:00.000Z`);
+      const endOfDay = new Date(`${tanggal}T23:59:59.999Z`);
 
-      const { senin, minggu } = getRentangMinggu(tanggalRef);
-
-      const columns = HARI_MINGGU.map((hari, i) => {
-        const tanggal = new Date(senin);
-        tanggal.setDate(senin.getDate() + i);
-        return {
-          key: hari.key,
-          label: hari.label,
-          tanggal: formatTanggal(tanggal),
-        };
+      const rows = await pegawai.findAll({
+        include: [
+          {
+            model: Presensi,
+            as: "presensis",
+            where: {
+              tanggal: {
+                [Op.between]: [startOfDay, endOfDay],
+              },
+            },
+            required: false,
+            include: [
+              { model: statusPresensi },
+              { model: daftarUnitKerja, as: "daftarUnitKerja" },
+            ],
+          },
+        ],
+        where: { statusPegawaiId: 5 },
       });
 
-      const pegawaiWhere = {};
-      if (unitKerjaId) pegawaiWhere.unitKerjaId = unitKerjaId;
-
-      const daftarPegawai = await pegawai.findAll({
-        where: pegawaiWhere,
-        attributes: ["id", "nama", "nip"],
-        order: [["nama", "ASC"]],
+      const result = rows.map((row) => {
+        const data = row.toJSON();
+        data.presensis = (data.presensis || []).map(enrichPresensiJamKerja);
+        return data;
       });
 
-      const presensiWhere = {
-        jamMasuk: { [Op.between]: [senin, minggu] },
-      };
-      if (unitKerjaId) presensiWhere.unitKerjaId = unitKerjaId;
-
-      const daftarPresensi = await presensi.findAll({
-        where: presensiWhere,
-      });
-
-      const presensiMap = {};
-      for (const item of daftarPresensi) {
-        const tanggalKey = formatTanggal(new Date(item.jamMasuk));
-        presensiMap[`${item.pegawaiId}_${tanggalKey}`] = {
-          id: item.id,
-          jamMasuk: item.jamMasuk,
-          jamPulang: item.jamPulang,
-        };
-      }
-
-      const rows = daftarPegawai.map((pg) => {
-        const row = {
-          pegawaiId: pg.id,
-          nama: pg.nama,
-          nip: pg.nip,
-        };
-        for (const col of columns) {
-          row[col.key] =
-            presensiMap[`${pg.id}_${col.tanggal}`] || null;
-        }
-        return row;
-      });
-
-      return res.status(200).json({
-        columns: [{ key: "nama", label: "Nama" }, ...columns],
-        rows,
-        periode: {
-          mulai: formatTanggal(senin),
-          selesai: formatTanggal(minggu),
-        },
-      });
+      return res.status(200).json({ result });
     } catch (err) {
       console.error(err);
       return res.status(500).json({
         message: err.toString(),
         code: 500,
       });
+    }
+  },
+
+  postPresensiMingguan: async (req, res) => {
+    const items = normalizePresensiInput(req.body);
+
+    if (items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Data presensi wajib berupa array dan tidak boleh kosong",
+        code: 400,
+      });
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      const results = [];
+
+      for (const item of items) {
+        const pegawaiId = Number(item.pegawaiId);
+        const unitKerjaId = Number(item.unitKerjaId);
+        const { tanggal } = item;
+
+        if (!pegawaiId || !tanggal || !unitKerjaId) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message:
+              "Setiap item wajib memiliki pegawaiId, tanggal, dan unitKerjaId",
+            code: 400,
+          });
+        }
+
+        const tanggalRange = toTanggalRange(tanggal);
+        if (!tanggalRange) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Format tanggal tidak valid: ${tanggal}`,
+            code: 400,
+          });
+        }
+
+        const jamPayload = buildJamPayload(item);
+        if (Object.keys(jamPayload).length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message:
+              "Setiap item wajib memiliki jamMasuk atau jamPulang sesuai tipeJam",
+            code: 400,
+          });
+        }
+
+        const { startOfDay, endOfDay, tanggalDate } = tanggalRange;
+
+        const existing = await Presensi.findOne({
+          where: {
+            pegawaiId,
+            tanggal: { [Op.between]: [startOfDay, endOfDay] },
+          },
+          transaction,
+        });
+
+        if (existing) {
+          const jamMasuk = jamPayload.jamMasuk ?? existing.jamMasuk;
+          const jamPulang = jamPayload.jamPulang ?? existing.jamPulang;
+
+          await existing.update(
+            {
+              ...jamPayload,
+              unitKerjaId,
+              jamKerja: hitungJamKerja(jamMasuk, jamPulang),
+            },
+            { transaction },
+          );
+          await existing.reload({ transaction });
+          results.push(existing);
+        } else {
+          const jamMasuk = jamPayload.jamMasuk ?? null;
+          const jamPulang = jamPayload.jamPulang ?? null;
+
+          const created = await Presensi.create(
+            {
+              pegawaiId,
+              tanggal: tanggalDate,
+              unitKerjaId,
+              jamMasuk,
+              jamPulang,
+              jamKerja: hitungJamKerja(jamMasuk, jamPulang),
+              statusPresensiId: jamPayload.statusPresensiId ?? 1,
+            },
+            { transaction },
+          );
+          results.push(created);
+        }
+      }
+
+      await transaction.commit();
+
+      return res.status(200).json({
+        success: true,
+        message: "Data presensi berhasil disimpan",
+        result: results,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menyimpan data presensi",
+        error: err.toString(),
+      });
+    }
+  },
+
+  getStatusPresensi: async (req, res) => {
+    try {
+      const result = await statusPresensi.findAll({});
+      return res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
     }
   },
 };

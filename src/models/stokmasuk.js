@@ -13,6 +13,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "unitKerjaId",
       });
       this.belongsTo(models.persediaan);
+      this.belongsTo(models.pengeluaran);
       this.hasMany(models.stokKeluar);
       this.belongsTo(models.laporanPersediaan);
       this.belongsTo(models.sumberDana);
@@ -46,6 +47,7 @@ module.exports = (sequelize, DataTypes) => {
       foto: DataTypes.STRING,
       mutasiPersediaanId: DataTypes.INTEGER,
       stokMasukAsalId: DataTypes.INTEGER,
+      pengeluaranId: DataTypes.INTEGER,
     },
     {
       sequelize,
