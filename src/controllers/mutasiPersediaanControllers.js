@@ -28,6 +28,45 @@ const stokInclude = [
   },
 ];
 
+const mapStokTersediaRows = (rows) =>
+  rows
+    .map((sm) => {
+      const totalKeluar = sm.stokKeluars
+        ? sm.stokKeluars.reduce((s, k) => s + (k.jumlah || 0), 0)
+        : 0;
+      const sisaStok = (sm.jumlah || 0) - totalKeluar;
+      return {
+        id: sm.id,
+        unitKerjaId: sm.unitKerjaId,
+        persediaanId: sm.persediaanId,
+        jumlah: sm.jumlah,
+        sisaStok,
+        hargaSatuan: sm.hargaSatuan,
+        spesifikasi: sm.spesifikasi,
+        tanggal: sm.tanggal,
+        foto: sm.foto,
+        mutasiPersediaanId: sm.mutasiPersediaanId,
+        persediaan: sm.persediaan,
+        sumberDana: sm.sumberDana,
+        satuanPersediaan: sm.satuanPersediaan,
+        daftarUnitKerja: sm.daftarUnitKerja || null,
+      };
+    })
+    .filter((r) => r.sisaStok > 0);
+
+const stokTersediaQueryInclude = [
+  ...stokInclude,
+  {
+    model: daftarUnitKerja,
+    attributes: ["id", "unitKerja", "kode"],
+  },
+  {
+    model: stokKeluar,
+    attributes: ["jumlah"],
+    required: false,
+  },
+];
+
 const mutasiListInclude = [
   {
     model: stokMasuk,
@@ -61,46 +100,39 @@ const mutasiListInclude = [
 ];
 
 module.exports = {
+  getAllStokTersedia: async (req, res) => {
+    try {
+      const rows = await stokMasuk.findAll({
+        include: stokTersediaQueryInclude,
+        order: [
+          [{ model: daftarUnitKerja }, "unitKerja", "ASC"],
+          ["tanggal", "DESC"],
+        ],
+      });
+
+      const result = mapStokTersediaRows(rows);
+      return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengambil stok tersedia semua unit kerja",
+        error: err.toString(),
+      });
+    }
+  },
+
   getStokTersedia: async (req, res) => {
     const { unitKerjaId } = req.params;
 
     try {
       const rows = await stokMasuk.findAll({
         where: { unitKerjaId },
-        include: [
-          ...stokInclude,
-          {
-            model: stokKeluar,
-            attributes: ["jumlah"],
-            required: false,
-          },
-        ],
+        include: stokTersediaQueryInclude,
         order: [["tanggal", "DESC"]],
       });
 
-      const result = rows
-        .map((sm) => {
-          const totalKeluar = sm.stokKeluars
-            ? sm.stokKeluars.reduce((s, k) => s + (k.jumlah || 0), 0)
-            : 0;
-          const sisaStok = (sm.jumlah || 0) - totalKeluar;
-          return {
-            id: sm.id,
-            persediaanId: sm.persediaanId,
-            jumlah: sm.jumlah,
-            sisaStok,
-            hargaSatuan: sm.hargaSatuan,
-            spesifikasi: sm.spesifikasi,
-            tanggal: sm.tanggal,
-            foto: sm.foto,
-            mutasiPersediaanId: sm.mutasiPersediaanId,
-            persediaan: sm.persediaan,
-            sumberDana: sm.sumberDana,
-            satuanPersediaan: sm.satuanPersediaan,
-          };
-        })
-        .filter((r) => r.sisaStok > 0);
-
+      const result = mapStokTersediaRows(rows);
       return res.status(200).json({ success: true, result });
     } catch (err) {
       console.error(err);

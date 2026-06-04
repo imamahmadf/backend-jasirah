@@ -12,7 +12,7 @@ const indukUKSumberDanas = [
   {
     id: 2,
     indukUnitKerjaId: 1,
-    sumberDanaId: 4,
+    sumberDanaId: 2,
     createdAt: currentDate,
     updatedAt: currentDate,
   },

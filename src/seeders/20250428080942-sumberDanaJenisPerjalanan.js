@@ -30,53 +30,18 @@ const sumberDanaJenisPerjalanans = [
     createdAt: currentDate,
     updatedAt: currentDate,
   },
-  {
-    id: 5,
-    jenisPerjalananId: 3,
-    sumberDanaId: 1,
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 6,
-    jenisPerjalananId: 3,
-    sumberDanaId: 2,
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
 
-  {
-    id: 7,
-    jenisPerjalananId: 4,
-    sumberDanaId: 3,
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 8,
-    jenisPerjalananId: 5,
-    sumberDanaId: 3,
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 9,
-    jenisPerjalananId: 6,
-    sumberDanaId: 3,
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
   {
     id: 10,
     jenisPerjalananId: 1,
-    sumberDanaId: 4,
+    sumberDanaId: 2,
     createdAt: currentDate,
     updatedAt: currentDate,
   },
   {
     id: 11,
     jenisPerjalananId: 2,
-    sumberDanaId: 4,
+    sumberDanaId: 2,
     createdAt: currentDate,
     updatedAt: currentDate,
   },
@@ -88,7 +53,7 @@ module.exports = {
     await queryInterface.bulkInsert(
       "sumberDanaJenisPerjalanans",
       sumberDanaJenisPerjalanans,
-      {}
+      {},
     );
   },
 

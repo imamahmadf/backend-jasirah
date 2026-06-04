@@ -8,6 +8,7 @@ const {
   rekanan,
   indukUnitKerja,
 } = require("../models");
+const ExcelJS = require("exceljs");
 const { Op } = require("sequelize");
 
 const NAMA_BULAN = [
@@ -437,6 +438,11 @@ module.exports = {
       return Number.isNaN(n) ? null : n;
     };
 
+    const toOptionalDate = (val) => {
+      if (val === "" || val == null || val === undefined) return null;
+      return val;
+    };
+
     try {
       const existing = await pengeluaran.findByPk(id);
 
@@ -450,7 +456,8 @@ module.exports = {
       const payload = {};
 
       if (tanggal !== undefined) payload.tanggal = tanggal;
-      if (jatuhTempo !== undefined) payload.jatuhTempo = jatuhTempo;
+      if (jatuhTempo !== undefined)
+        payload.jatuhTempo = toOptionalDate(jatuhTempo);
       if (deskripsi !== undefined) payload.deskripsi = deskripsi;
       if (unitKerjaId !== undefined) payload.unitKerjaId = toInt(unitKerjaId);
       if (metodePembayaranId !== undefined) {
@@ -682,6 +689,95 @@ module.exports = {
         success: false,
         message: "Gagal mengambil data dashboard pengeluaran",
         error: err.message,
+      });
+    }
+  },
+
+  getDownloadPengeluaran: async (req, res) => {
+    console.log(req.query);
+    const whereCondition = {};
+
+    try {
+      const result = await pengeluaran.findAll({
+        where: whereCondition,
+
+        include: [
+          { model: pegawai },
+          { model: metodePembayaran },
+          { model: jenisPengeluaran },
+          { model: statusPembayaran },
+          { model: rekanan },
+          { model: indukUnitKerja, attributes: ["id", "indukUnitKerja"] },
+          {
+            model: daftarUnitKerja,
+            attributes: [
+              "id",
+              "unitKerja",
+              "kode",
+              "asal",
+              "indukUnitKerjaId",
+              "createdAt",
+              "updatedAt",
+            ],
+          },
+        ],
+      });
+
+      // Generate Excel
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Data Pengeluaran");
+
+      // Header
+      worksheet.columns = [
+        { header: "No", key: "no", width: 5 },
+        { header: "tanggal", key: "tanggal", width: 30 },
+        { header: "jatuh tempo", key: "jatuhTempo", width: 20 },
+        { header: "deskripsi", key: "deskripsi", width: 25 },
+        { header: "proyek", key: "proyek", width: 25 },
+        { header: "pegawai", key: "pegawai", width: 25 },
+        { header: "rekanan", key: "rekanan", width: 25 },
+        { header: "metode", key: "metode", width: 20 },
+        { header: "jenis", key: "jenis", width: 20 },
+        { header: "status", key: "status", width: 25 },
+        { header: "nominal", key: "nominal", width: 25 },
+      ];
+
+      // Data rows
+      result.forEach((item, index) => {
+        worksheet.addRow({
+          no: index + 1,
+          tanggal: item.tanggal,
+          jatuhTempo: item.jatuhTempo,
+          deskripsi: item.deskripsi,
+
+          proyek: item.daftarUnitKerja?.unitKerja || "-",
+          pegawai: item.pegawai?.nama || "-",
+          rekanan: item?.rekanan?.nama,
+          metode: item?.metodePembayaran?.nama || "-",
+          jenis: item?.jenisPengeluaran?.nama || "-",
+          status: item?.statusPembayaran?.nama || "-",
+          nominal: item?.nominal || "-",
+        });
+      });
+
+      // Set response headers
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        "attachment; filename=data-pegawai.xlsx",
+      );
+
+      // Send Excel file
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: err.toString(),
+        code: 500,
       });
     }
   },

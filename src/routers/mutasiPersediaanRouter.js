@@ -3,6 +3,10 @@ const router = express.Router();
 const { mutasiPersediaanControllers } = require("../controllers");
 
 router.get(
+  "/get/stok",
+  mutasiPersediaanControllers.getAllStokTersedia
+);
+router.get(
   "/get/stok/:unitKerjaId",
   mutasiPersediaanControllers.getStokTersedia
 );

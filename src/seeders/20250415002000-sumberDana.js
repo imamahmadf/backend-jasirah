@@ -2,7 +2,7 @@ const currentDate = new Date();
 const sumberDanas = [
   {
     id: 1,
-    sumber: "APBD",
+    sumber: "Kas Besar",
     untukPembayaran: "untuk pembayaran ABPD",
     kalimat1: "",
     createdAt: currentDate,
@@ -10,26 +10,9 @@ const sumberDanas = [
   },
   {
     id: 2,
-    sumber: "BLUD",
+    sumber: "Kas Kecil",
     untukPembayaran: "untuk pembayaran BLUD",
     kalimat1: "Peningkatan Pelayanan BLUD",
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-  {
-    id: 3,
-    sumber: "BOK-PKM",
-    untukPembayaran: "untuk pembayaran BOK-PKM",
-    kalimat1: "(Dak Non Fisik)",
-    createdAt: currentDate,
-    updatedAt: currentDate,
-  },
-
-  {
-    id: 4,
-    sumber: "BOK",
-    untukPembayaran: "untuk pembayaran BOK",
-    kalimat1: "",
     createdAt: currentDate,
     updatedAt: currentDate,
   },

@@ -319,6 +319,14 @@ module.exports = {
         return res.status(400).json({ message: "laporanId wajib disertakan" });
       }
 
+      // Opsional: tanpa unitKerjaId = semua unit (sama seperti getDetailLaporan)
+      const stokMasukUnitWhere = unitKerjaId ? { unitKerjaId } : {};
+      const stokMasukJoin = {
+        model: stokMasuk,
+        attributes: [],
+        ...(unitKerjaId ? { where: { unitKerjaId } } : {}),
+      };
+
       // 1) Periode laporan
       const lap = await laporanPersediaan.findByPk(laporanId);
       if (!lap)
@@ -341,7 +349,7 @@ module.exports = {
           "keterangan",
           "spesifikasi",
         ],
-        where: { tanggal: { [Op.lte]: tanggalAkhir }, unitKerjaId },
+        where: { tanggal: { [Op.lte]: tanggalAkhir }, ...stokMasukUnitWhere },
         order: [["id", "ASC"]],
         raw: true,
       });
@@ -358,7 +366,7 @@ module.exports = {
             "qtyKeluarAkhir",
           ],
         ],
-        include: [{ model: stokMasuk, attributes: [], where: { unitKerjaId } }],
+        include: [stokMasukJoin],
         where: { tanggal: { [Op.lte]: tanggalAkhir } },
         group: [col("stokMasuk.id")],
         raw: true,
@@ -378,7 +386,7 @@ module.exports = {
           [col("stokMasuk.sumberDanaId"), "sumberDanaId"],
           [col("stokMasuk.hargaSatuan"), "hargaSatuan"],
         ],
-        include: [{ model: stokMasuk, attributes: [], where: { unitKerjaId } }],
+        include: [stokMasukJoin],
         where: { tanggal: { [Op.between]: [tanggalAwal, tanggalAkhir] } },
         order: [
           ["tanggal", "ASC"],
@@ -402,7 +410,7 @@ module.exports = {
         ],
         where: {
           tanggal: { [Op.lt]: tanggalAwal },
-          unitKerjaId,
+          ...stokMasukUnitWhere,
         },
         order: [["id", "ASC"]],
         raw: true,
@@ -419,7 +427,7 @@ module.exports = {
             "qtyKeluarSebelum",
           ],
         ],
-        include: [{ model: stokMasuk, attributes: [], where: { unitKerjaId } }],
+        include: [stokMasukJoin],
         where: { tanggal: { [Op.lt]: tanggalAwal } },
         group: [col("stokMasuk.id")],
         raw: true,
@@ -439,7 +447,7 @@ module.exports = {
         ],
         where: {
           tanggal: { [Op.between]: [tanggalAwal, tanggalAkhir] },
-          unitKerjaId,
+          ...stokMasukUnitWhere,
         },
         order: [["id", "ASC"]],
         raw: true,

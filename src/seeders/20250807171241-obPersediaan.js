@@ -7,20 +7,20 @@ const obPersediaans = [
     updatedAt: currentDate,
     Kode: "1.1.7.01",
   },
-  {
-    id: 2,
-    nama: "Barang Tak Habis Pakai",
-    createdAt: currentDate,
-    updatedAt: currentDate,
-    Kode: "1.1.7.02",
-  },
-  {
-    id: 3,
-    nama: "Barang Bekas Dipakai",
-    createdAt: currentDate,
-    updatedAt: currentDate,
-    Kode: "1.1.7.03",
-  },
+  // {
+  //   id: 2,
+  //   nama: "Barang Tak Habis Pakai",
+  //   createdAt: currentDate,
+  //   updatedAt: currentDate,
+  //   Kode: "1.1.7.02",
+  // },
+  // {
+  //   id: 3,
+  //   nama: "Barang Bekas Dipakai",
+  //   createdAt: currentDate,
+  //   updatedAt: currentDate,
+  //   Kode: "1.1.7.03",
+  // },
 ];
 
 /** @type {import('sequelize-cli').Migration} */

@@ -4,7 +4,7 @@ const currentDate = new Date();
 const suratPesanans = [
   {
     id: 1,
-    nomor: "800.1.2/NOMOR/BULAN/TAHUN",
+    nomor: "NOMOR/JDB/BULAN/TAHUN",
     indukUnitKerjaId: 1,
     createdAt: currentDate,
     updatedAt: currentDate,
