@@ -280,6 +280,14 @@ module.exports = {
     const metodePembayaranId = parseInt(req.query.metodePembayaranId);
     const jenisPengeluaranId = parseInt(req.query.jenisPengeluaranId);
     const statusPembayaranId = parseInt(req.query.statusPembayaranId);
+    const allowedSortBy = ["tanggal", "nominal"];
+    const sortBy = allowedSortBy.includes(req.query.sortBy)
+      ? req.query.sortBy
+      : "tanggal";
+    const sortOrder =
+      String(req.query.sortOrder || "DESC").toUpperCase() === "ASC"
+        ? "ASC"
+        : "DESC";
     const whereCondition = {};
     const currentYear = new Date().getFullYear();
 
@@ -311,6 +319,7 @@ module.exports = {
         where: whereCondition,
         limit,
         offset,
+        order: [[sortBy, sortOrder]],
         include: [
           { model: pegawai },
           { model: metodePembayaran },
