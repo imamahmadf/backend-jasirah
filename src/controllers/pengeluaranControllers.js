@@ -371,6 +371,7 @@ module.exports = {
       statusPembayaranId,
       jatuhTempo,
       indukUnitKerjaId,
+      rekananId,
     } = req.body;
 
     const toInt = (val) => {
@@ -383,14 +384,16 @@ module.exports = {
       !tanggal ||
       !deskripsi ||
       !unitKerjaId ||
+      !indukUnitKerjaId ||
       !metodePembayaranId ||
       !jenisPengeluaranId ||
       !nominal ||
-      !pegawaiId ||
       !statusPembayaranId
     ) {
       return res.status(400).json({
         success: false,
+        message:
+          "Tanggal, deskripsi, unit usaha, proyek, metode, jenis, status, dan nominal wajib diisi",
       });
     }
 
@@ -402,7 +405,7 @@ module.exports = {
 
       const result = await pengeluaran.create({
         tanggal,
-        jatuhTempo,
+        jatuhTempo: jatuhTempo || null,
         deskripsi,
         unitKerjaId: toInt(unitKerjaId),
         metodePembayaranId: toInt(metodePembayaranId),
@@ -411,6 +414,7 @@ module.exports = {
         pegawaiId: toInt(pegawaiId),
         statusPembayaranId: toInt(statusPembayaranId),
         indukUnitKerjaId: toInt(indukUnitKerjaId),
+        rekananId: toInt(rekananId),
         foto,
       });
 
@@ -441,6 +445,7 @@ module.exports = {
       statusPembayaranId,
       jatuhTempo,
       rekananId,
+      indukUnitKerjaId,
     } = req.body;
     console.log(req.body, "cek dlu dtanya");
     const toInt = (val) => {
@@ -471,6 +476,9 @@ module.exports = {
         payload.jatuhTempo = toOptionalDate(jatuhTempo);
       if (deskripsi !== undefined) payload.deskripsi = deskripsi;
       if (unitKerjaId !== undefined) payload.unitKerjaId = toInt(unitKerjaId);
+      if (indukUnitKerjaId !== undefined) {
+        payload.indukUnitKerjaId = toInt(indukUnitKerjaId);
+      }
       if (metodePembayaranId !== undefined) {
         payload.metodePembayaranId = toInt(metodePembayaranId);
       }
