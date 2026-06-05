@@ -10,6 +10,7 @@ const {
   indukUnitKerja,
   daftarUnitKerja,
   satuanPersediaan,
+  pengeluaran,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -84,7 +85,7 @@ module.exports = {
         {
           status: status == "buka" ? "tutup" : "buka",
         },
-        { where: { id } }
+        { where: { id } },
       );
 
       return res.status(200).json({
@@ -122,6 +123,7 @@ module.exports = {
           "suratPesananId",
           "satuanPersediaanId",
           "foto",
+          "pengeluaranId",
         ],
         include: [
           {
@@ -141,6 +143,7 @@ module.exports = {
           { model: sumberDana, attributes: ["id", "sumber"] },
           { model: suratPesanan, attributes: ["id", "nomor"] },
           { model: satuanPersediaan },
+          { model: pengeluaran, attributes: ["id", "foto"] },
           { model: daftarUnitKerja, attributes: ["id", "unitKerja"] },
         ],
       };

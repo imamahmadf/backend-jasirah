@@ -7,6 +7,8 @@ const {
   daftarUnitKerja,
   rekanan,
   indukUnitKerja,
+  satuanPersediaan,
+  stokMasuk,
 } = require("../models");
 const ExcelJS = require("exceljs");
 const { Op } = require("sequelize");
@@ -779,6 +781,73 @@ module.exports = {
         message: err.toString(),
         code: 500,
       });
+    }
+  },
+
+  searchPengeluaran: async (req, res) => {
+    try {
+      const { q } = req.query;
+      console.log(q);
+      const result = await pengeluaran.findAll({
+        where: {
+          deskripsi: {
+            [Op.like]: `%${q}%`,
+          },
+        },
+        attributes: ["id", "tanggal", "deskripsi", "nominal", "unitKerjaId"],
+        include: [
+          {
+            model: daftarUnitKerja,
+            attributes: ["unitKerja", "id"],
+          },
+        ],
+        limit: 10,
+        order: [["deskripsi", "ASC"]],
+      });
+
+      res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ message: err.toString(), code: 500 });
+    }
+  },
+
+  getDetailPengeluaran: async (req, res) => {
+    try {
+      const id = req.params.id;
+
+      const result = await pengeluaran.findOne({
+        where: {
+          id,
+        },
+
+        include: [
+          { model: pegawai },
+          { model: stokMasuk, include: [{ model: satuanPersediaan }] },
+          { model: metodePembayaran },
+          { model: jenisPengeluaran },
+          { model: statusPembayaran },
+          { model: rekanan },
+          { model: indukUnitKerja, attributes: ["id", "indukUnitKerja"] },
+          {
+            model: daftarUnitKerja,
+            attributes: [
+              "id",
+              "unitKerja",
+              "kode",
+              "asal",
+              "indukUnitKerjaId",
+              "createdAt",
+              "updatedAt",
+            ],
+          },
+        ],
+      });
+
+      res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ message: err.toString(), code: 500 });
     }
   },
 };

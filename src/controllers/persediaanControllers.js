@@ -223,6 +223,7 @@ module.exports = {
       suratPesananId,
       sumberDanaId,
       satuanPersediaanId,
+      pengeluaranId,
     } = req.body;
 
     const toInt = (val) => {
@@ -251,6 +252,7 @@ module.exports = {
         sumberDanaId: toInt(sumberDanaId),
         suratPesananId: toInt(suratPesananId),
         satuanPersediaanId: toInt(satuanPersediaanId),
+        pengeluaranId: toInt(pengeluaranId),
         foto,
       });
 
@@ -516,7 +518,7 @@ module.exports = {
 
       // 7) Ambil info persediaan + tipePersediaan (kodeRekening)
       const stokMasukIds = stokMasukKeys.map((key) =>
-        Number(key.replace("stokMasuk_", ""))
+        Number(key.replace("stokMasuk_", "")),
       );
 
       // Ambil data stokMasuk yang lengkap untuk mendapatkan persediaanId
@@ -562,8 +564,13 @@ module.exports = {
 
         if (!stokMasukInfo) continue;
 
-        const { persediaanId, suratPesananId, sumberDanaId, hargaSatuan, foto } =
-          stokMasukInfo;
+        const {
+          persediaanId,
+          suratPesananId,
+          sumberDanaId,
+          hargaSatuan,
+          foto,
+        } = stokMasukInfo;
 
         // Stok awal = sisa dari stokMasuk.id yang sama
         const stokAwal = mapStokAwal.get(stokMasukKey) || 0;
@@ -655,9 +662,7 @@ module.exports = {
     const { q } = req.query;
 
     try {
-      const persediaanWhere = q
-        ? { nama: { [Op.like]: `%${q}%` } }
-        : undefined;
+      const persediaanWhere = q ? { nama: { [Op.like]: `%${q}%` } } : undefined;
 
       const masukRows = await stokMasuk.findAll({
         where: { unitKerjaId },
@@ -665,7 +670,12 @@ module.exports = {
           {
             model: persediaan,
             where: persediaanWhere,
-            include: [{ model: tipePersediaan, attributes: ["id", "nama", "kodeRekening"] }],
+            include: [
+              {
+                model: tipePersediaan,
+                attributes: ["id", "nama", "kodeRekening"],
+              },
+            ],
           },
           {
             model: stokKeluar,
@@ -716,7 +726,7 @@ module.exports = {
       });
 
       const result = Array.from(grouped.values()).sort((a, b) =>
-        (a.nama || "").localeCompare(b.nama || "")
+        (a.nama || "").localeCompare(b.nama || ""),
       );
 
       return res.status(200).json({
@@ -745,7 +755,9 @@ module.exports = {
 
     try {
       const barang = await persediaan.findByPk(persediaanId, {
-        include: [{ model: tipePersediaan, attributes: ["id", "nama", "kodeRekening"] }],
+        include: [
+          { model: tipePersediaan, attributes: ["id", "nama", "kodeRekening"] },
+        ],
       });
 
       if (!barang) {
@@ -779,7 +791,8 @@ module.exports = {
 
       if (batches.length === 0) {
         return res.status(404).json({
-          message: "Tidak ada riwayat stok untuk persediaan ini di unit kerja tersebut",
+          message:
+            "Tidak ada riwayat stok untuk persediaan ini di unit kerja tersebut",
         });
       }
 
@@ -793,7 +806,7 @@ module.exports = {
         const keluarList = sm.stokKeluars || [];
         const keluarBatch = keluarList.reduce(
           (sum, k) => sum + (k.jumlah || 0),
-          0
+          0,
         );
         const sisaBatch = (sm.jumlah || 0) - keluarBatch;
 
@@ -854,11 +867,11 @@ module.exports = {
       });
 
       timeline.sort(
-        (a, b) => new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime()
+        (a, b) => new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime(),
       );
 
       riwayatKeluar.sort(
-        (a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime()
+        (a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime(),
       );
 
       return res.status(200).json({

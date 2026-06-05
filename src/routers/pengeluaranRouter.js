@@ -25,11 +25,13 @@ routers.get("/get", pengeluaranControllers.getAllPengeluaran);
 routers.get("/get/dashboard", pengeluaranControllers.getDashboardPengeluaran);
 
 routers.get("/get/seed", pengeluaranControllers.getSeed);
-
+routers.get("/search", pengeluaranControllers.searchPengeluaran);
 routers.get(
   "/get/download",
   authenticateUser,
   pengeluaranControllers.getDownloadPengeluaran,
 );
+
+routers.get("/get/detail/:id", pengeluaranControllers.getDetailPengeluaran);
 
 module.exports = routers;
