@@ -32,6 +32,10 @@ module.exports = (sequelize, DataTypes) => {
       statusPresensiId: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
       jamKerja: DataTypes.INTEGER,
+      lemburHarian: {
+        type: DataTypes.INTEGER,
+        field: "lemburharian",
+      },
     },
     {
       sequelize,

@@ -37,6 +37,9 @@ const buildJamPayload = (item) => {
   if (item.statusPresensiId != null) {
     payload.statusPresensiId = Number(item.statusPresensiId);
   }
+  if (item.lemburHarian != null && item.lemburHarian !== "") {
+    payload.lemburHarian = Number(item.lemburHarian);
+  }
   return payload;
 };
 
@@ -164,12 +167,11 @@ module.exports = {
         const unitKerjaId = Number(item.unitKerjaId);
         const { tanggal } = item;
 
-        if (!pegawaiId || !tanggal || !unitKerjaId) {
+        if (!pegawaiId || !tanggal) {
           await transaction.rollback();
           return res.status(400).json({
             success: false,
-            message:
-              "Setiap item wajib memiliki pegawaiId, tanggal, dan unitKerjaId",
+            message: "Setiap item wajib memiliki pegawaiId dan tanggal",
             code: 400,
           });
         }
@@ -184,17 +186,6 @@ module.exports = {
           });
         }
 
-        const jamPayload = buildJamPayload(item);
-        if (Object.keys(jamPayload).length === 0) {
-          await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message:
-              "Setiap item wajib memiliki jamMasuk atau jamPulang sesuai tipeJam",
-            code: 400,
-          });
-        }
-
         const { startOfDay, endOfDay, tanggalDate } = tanggalRange;
 
         const existing = await Presensi.findOne({
@@ -205,6 +196,30 @@ module.exports = {
           transaction,
         });
 
+        const resolvedUnitKerjaId =
+          unitKerjaId || existing?.unitKerjaId || null;
+
+        if (!resolvedUnitKerjaId) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message:
+              "Setiap item wajib memiliki unitKerjaId (atau sudah ada presensi dengan unit kerja)",
+            code: 400,
+          });
+        }
+
+        const jamPayload = buildJamPayload(item);
+        if (Object.keys(jamPayload).length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({
+            success: false,
+            message:
+              "Setiap item wajib memiliki jamMasuk, jamPulang, statusPresensiId, atau lemburHarian",
+            code: 400,
+          });
+        }
+
         if (existing) {
           const jamMasuk = jamPayload.jamMasuk ?? existing.jamMasuk;
           const jamPulang = jamPayload.jamPulang ?? existing.jamPulang;
@@ -212,7 +227,7 @@ module.exports = {
           await existing.update(
             {
               ...jamPayload,
-              unitKerjaId,
+              unitKerjaId: resolvedUnitKerjaId,
               jamKerja: hitungJamKerja(jamMasuk, jamPulang),
             },
             { transaction },
@@ -227,11 +242,12 @@ module.exports = {
             {
               pegawaiId,
               tanggal: tanggalDate,
-              unitKerjaId,
+              unitKerjaId: resolvedUnitKerjaId,
               jamMasuk,
               jamPulang,
               jamKerja: hitungJamKerja(jamMasuk, jamPulang),
               statusPresensiId: jamPayload.statusPresensiId ?? 1,
+              lemburHarian: jamPayload.lemburHarian ?? null,
             },
             { transaction },
           );

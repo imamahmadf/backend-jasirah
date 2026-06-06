@@ -23,7 +23,21 @@ const { Op } = require("sequelize");
 const ExcelJS = require("exceljs");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { renderSlipGajiFromTemplatePath } = require("../utils/slipGajiDocx");
+const {
+  renderSlipGajiFromTemplatePath,
+  renderSlipGajiBulananFromTemplatePath,
+} = require("../utils/slipGajiDocx");
+const { mergeDocxBuffers } = require("../utils/mergeDocx");
+const {
+  buildPayrollSlip,
+  buildSlipBulananDocxPayload,
+  createEmptySlipBulananPayload,
+  formatPeriodeLabel,
+  formatLemburHarianForSlip,
+  isPegawaiMingguan,
+  hitungTotalGajiPresensi,
+  hitungGajiPresensiPerUnitKerja,
+} = require("../utils/buildPayrollSlip");
 
 function formatRupiah(angka) {
   return Number(angka || 0).toLocaleString("id-ID");
@@ -52,15 +66,29 @@ const normalizeSlip = (slip) => ({
   total: slip?.total || "",
 });
 
-function createPages(data) {
-  const pages = [];
+const SLIPS_PER_PAGE = 4;
 
-  for (let i = 0; i < data.length; i += 4) {
+function sortByPegawaiIdsOrder(items, pegawaiIds, getId = (item) => item.id) {
+  const orderMap = new Map(pegawaiIds.map((id, index) => [Number(id), index]));
+
+  return [...items].sort(
+    (a, b) =>
+      (orderMap.get(Number(getId(a))) ?? Number.MAX_SAFE_INTEGER) -
+      (orderMap.get(Number(getId(b))) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function createSlipPages(data, emptySlipFn, normalizeSlipFn) {
+  const pages = [];
+  const pickSlip = (item) => (item ? normalizeSlipFn(item) : emptySlipFn());
+
+  // Satu halaman template = 4 slip (kiri atas, kanan atas, kiri bawah, kanan bawah).
+  for (let i = 0; i < data.length; i += SLIPS_PER_PAGE) {
     pages.push({
-      kiriAtas: normalizeSlip(data[i]),
-      kananAtas: normalizeSlip(data[i + 1]),
-      kiriBawah: normalizeSlip(data[i + 2]),
-      kananBawah: normalizeSlip(data[i + 3]),
+      kiriAtas: pickSlip(data[i]),
+      kananAtas: pickSlip(data[i + 1]),
+      kiriBawah: pickSlip(data[i + 2]),
+      kananBawah: pickSlip(data[i + 3]),
     });
   }
 
@@ -68,12 +96,73 @@ function createPages(data) {
     ? pages
     : [
         {
-          kiriAtas: emptySlip(),
-          kananAtas: emptySlip(),
-          kiriBawah: emptySlip(),
-          kananBawah: emptySlip(),
+          kiriAtas: emptySlipFn(),
+          kananAtas: emptySlipFn(),
+          kiriBawah: emptySlipFn(),
+          kananBawah: emptySlipFn(),
         },
       ];
+}
+
+function createPages(data) {
+  return createSlipPages(data, emptySlip, normalizeSlip);
+}
+
+const emptySlipBulanan = () => createEmptySlipBulananPayload();
+
+const normalizeSlipBulanan = (slip) => {
+  if (!slip?.filled) {
+    return createEmptySlipBulananPayload();
+  }
+
+  return {
+    filled: true,
+    nama: slip?.nama || "",
+    jabatan: slip?.jabatan || "",
+    periode: slip?.periode || "",
+    gajiTetap: Array.isArray(slip?.gajiTetap) ? slip.gajiTetap : [],
+    totalGajiTetap: slip?.totalGajiTetap || "0",
+    gajiTidakTetap: Array.isArray(slip?.gajiTidakTetap)
+      ? slip.gajiTidakTetap
+      : [],
+    totalGajiTidakTetap: slip?.totalGajiTidakTetap || "0",
+    potongan: Array.isArray(slip?.potongan) ? slip.potongan : [],
+    totalPotongan: slip?.totalPotongan || "0",
+    gajiDiterima: slip?.gajiDiterima || "0",
+    takeHomePay: slip?.takeHomePay || "0",
+  };
+};
+
+function createPagesBulanan(data) {
+  return createSlipPages(data, emptySlipBulanan, normalizeSlipBulanan);
+}
+
+function buildPayrollPeriodWhere(tanggalAwal, tanggalAkhir) {
+  return {
+    periode: tanggalAwal,
+    [Op.or]: [
+      { periodeAkhir: tanggalAkhir },
+      { periodeAkhir: null },
+      { periodeAkhir: "" },
+    ],
+  };
+}
+
+function pickLatestPayrollPerPegawai(payrollRecords, pegawaiIds) {
+  const latestByPegawaiId = new Map();
+
+  for (const record of payrollRecords) {
+    const pegawaiId = Number(record.pegawaiId);
+    const current = latestByPegawaiId.get(pegawaiId);
+
+    if (!current || Number(record.id) > Number(current.id)) {
+      latestByPegawaiId.set(pegawaiId, record);
+    }
+  }
+
+  return pegawaiIds
+    .map((id) => latestByPegawaiId.get(Number(id)))
+    .filter(Boolean);
 }
 
 function hitungNominalByTipe(nilai, tipe, gajiPokok) {
@@ -85,13 +174,117 @@ function hitungNominalByTipe(nilai, tipe, gajiPokok) {
   return nominalNilai;
 }
 
-function hitungTotalGajiPresensi(presensis, gajiPokokHarian) {
-  return (presensis || []).reduce((total, presensi) => {
-    if (presensi.statusPresensiId === 1) {
-      return total + (Number(gajiPokokHarian) || 0);
+function roundTakeHomePay(nominal) {
+  return Math.floor((Number(nominal) || 0) / 100) * 100;
+}
+
+function buildPengeluaranPayload(
+  listPegawai,
+  {
+    tanggalAwal,
+    presensisByPegawaiId,
+    gajiPokokPegawaiMap,
+    gajiPokokPayrollByPegawaiId,
+    payrollByPegawaiId,
+    tunjanganTotalByPayrollId,
+    potonganTotalByPayrollId,
+    defaultMetode,
+    defaultJenis,
+    defaultStatus,
+  },
+) {
+  const pengeluaranPayload = [];
+
+  for (const item of listPegawai) {
+    const payrollId = payrollByPegawaiId[item.id];
+    const tunjanganTotal = tunjanganTotalByPayrollId[payrollId] || 0;
+    const potonganTotal = potonganTotalByPayrollId[payrollId] || 0;
+    const netTunjanganPotongan = tunjanganTotal - potonganTotal;
+
+    const baseEntry = {
+      tanggal: new Date(),
+      metodePembayaranId: defaultMetode.id,
+      jenisPengeluaranId: defaultJenis.id,
+      statusPembayaranId: defaultStatus.id,
+      foto: null,
+      pegawaiId: item.id,
+    };
+
+    if (isPegawaiMingguan(item.statusPegawaiId)) {
+      const gajiPerUnit = hitungGajiPresensiPerUnitKerja(
+        presensisByPegawaiId[item.id],
+        gajiPokokPegawaiMap[item.id],
+        item.unitKerjaId,
+      );
+      const unitKerjaIds = Object.keys(gajiPerUnit);
+
+      if (unitKerjaIds.length === 0) {
+        const nominal = roundTakeHomePay(netTunjanganPotongan);
+        if (nominal > 0 && item.unitKerjaId) {
+          pengeluaranPayload.push({
+            ...baseEntry,
+            deskripsi: `Pembayaran gaji ${item.nama} periode ${tanggalAwal}`,
+            unitKerjaId: item.unitKerjaId,
+            nominal,
+          });
+        }
+        continue;
+      }
+
+      let tunjanganPotonganAssigned = false;
+
+      for (const unitKerjaIdStr of unitKerjaIds) {
+        const unitKerjaId = Number(unitKerjaIdStr);
+        let nominal = gajiPerUnit[unitKerjaId];
+
+        if (
+          !tunjanganPotonganAssigned &&
+          unitKerjaId === Number(item.unitKerjaId)
+        ) {
+          nominal += netTunjanganPotongan;
+          tunjanganPotonganAssigned = true;
+        }
+
+        nominal = roundTakeHomePay(nominal);
+        if (nominal <= 0) continue;
+
+        pengeluaranPayload.push({
+          ...baseEntry,
+          deskripsi: `Pembayaran gaji ${item.nama} periode ${tanggalAwal}`,
+          unitKerjaId,
+          nominal,
+        });
+      }
+
+      if (!tunjanganPotonganAssigned && netTunjanganPotongan !== 0) {
+        const nominal = roundTakeHomePay(netTunjanganPotongan);
+        if (nominal !== 0 && item.unitKerjaId) {
+          pengeluaranPayload.push({
+            ...baseEntry,
+            deskripsi: `Pembayaran gaji ${item.nama} periode ${tanggalAwal}`,
+            unitKerjaId: item.unitKerjaId,
+            nominal,
+          });
+        }
+      }
+
+      continue;
     }
-    return total;
-  }, 0);
+
+    const gajiPokokPayroll = gajiPokokPayrollByPegawaiId[item.id] ?? 0;
+    const takeHomePay = roundTakeHomePay(
+      gajiPokokPayroll + netTunjanganPotongan,
+    );
+
+    pengeluaranPayload.push({
+      ...baseEntry,
+      deskripsi: `Pembayaran gaji ${item.nama} periode ${tanggalAwal}`,
+      unitKerjaId: item.unitKerjaId,
+      nominal: takeHomePay,
+    });
+  }
+
+  return pengeluaranPayload;
 }
 
 async function createPayrollAndPengeluaran(
@@ -114,7 +307,13 @@ async function createPayrollAndPengeluaran(
       }),
       pegawai.findAll({
         where: { id: { [Op.in]: pegawaiId } },
-        attributes: ["id", "nama", "gajiPokok", "unitKerjaId"],
+        attributes: [
+          "id",
+          "nama",
+          "gajiPokok",
+          "unitKerjaId",
+          "statusPegawaiId",
+        ],
         transaction,
       }),
       Presensi.findAll({
@@ -136,14 +335,19 @@ async function createPayrollAndPengeluaran(
     return acc;
   }, {});
 
-  const totalGajiByPegawaiId = Object.fromEntries(
-    pegawaiId.map((id) => [
-      id,
-      hitungTotalGajiPresensi(
-        presensisByPegawaiId[id],
-        gajiPokokPegawaiMap[id],
-      ),
-    ]),
+  const gajiPokokPayrollByPegawaiId = Object.fromEntries(
+    listPegawai.map((item) => {
+      if (isPegawaiMingguan(item.statusPegawaiId)) {
+        return [
+          item.id,
+          hitungTotalGajiPresensi(
+            presensisByPegawaiId[item.id],
+            gajiPokokPegawaiMap[item.id],
+          ),
+        ];
+      }
+      return [item.id, gajiPokokPegawaiMap[item.id] ?? 0];
+    }),
   );
 
   const payrollRecords = await payroll.bulkCreate(
@@ -151,7 +355,7 @@ async function createPayrollAndPengeluaran(
       pegawaiId: id,
       periode: tanggalAwal,
       periodeAkhir: tanggalAkhir,
-      gajiPokok: totalGajiByPegawaiId[id] ?? 0,
+      gajiPokok: gajiPokokPayrollByPegawaiId[id] ?? 0,
     })),
     { transaction },
   );
@@ -179,6 +383,18 @@ async function createPayrollAndPengeluaran(
       gajiPokokPegawaiMap[pp.pegawaiId] ?? 0,
     ),
   }));
+
+  const tunjanganTotalByPayrollId = dataTunjangan.reduce((acc, item) => {
+    acc[item.payrollId] =
+      (acc[item.payrollId] || 0) + (Number(item.nominal) || 0);
+    return acc;
+  }, {});
+
+  const potonganTotalByPayrollId = dataPotongan.reduce((acc, item) => {
+    acc[item.payrollId] =
+      (acc[item.payrollId] || 0) + (Number(item.nominal) || 0);
+    return acc;
+  }, {});
 
   const [resultTunjangan, resultPotongan] = await Promise.all([
     dataTunjangan.length > 0
@@ -213,20 +429,17 @@ async function createPayrollAndPengeluaran(
     throw err;
   }
 
-  const pengeluaranPayload = listPegawai.map((item) => {
-    const totalGaji = totalGajiByPegawaiId[item.id] ?? 0;
-
-    return {
-      tanggal: new Date(),
-      deskripsi: `Pembayaran gaji ${item.nama} periode ${tanggalAwal}`,
-      unitKerjaId: item.unitKerjaId,
-      metodePembayaranId: defaultMetode.id,
-      jenisPengeluaranId: defaultJenis.id,
-      nominal: totalGaji,
-      pegawaiId: item.id,
-      statusPembayaranId: defaultStatus.id,
-      foto: null,
-    };
+  const pengeluaranPayload = buildPengeluaranPayload(listPegawai, {
+    tanggalAwal,
+    presensisByPegawaiId,
+    gajiPokokPegawaiMap,
+    gajiPokokPayrollByPegawaiId,
+    payrollByPegawaiId,
+    tunjanganTotalByPayrollId,
+    potonganTotalByPayrollId,
+    defaultMetode,
+    defaultJenis,
+    defaultStatus,
   });
 
   const resultPengeluaran =
@@ -240,6 +453,139 @@ async function createPayrollAndPengeluaran(
     payrollPotongan: resultPotongan,
     pengeluaran: resultPengeluaran,
   };
+}
+
+async function ensurePayrollForSlip(pegawaiIds, tanggalAwal, tanggalAkhir) {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const existingPayrolls = await payroll.findAll({
+      where: {
+        pegawaiId: { [Op.in]: pegawaiIds },
+        ...buildPayrollPeriodWhere(tanggalAwal, tanggalAkhir),
+      },
+      attributes: ["pegawaiId"],
+      transaction,
+    });
+
+    const existingPegawaiIds = new Set(
+      existingPayrolls.map((item) => item.pegawaiId),
+    );
+    const pegawaiIdsToCreate = pegawaiIds.filter(
+      (id) => !existingPegawaiIds.has(id),
+    );
+
+    if (pegawaiIdsToCreate.length > 0) {
+      await createPayrollAndPengeluaran(
+        pegawaiIdsToCreate,
+        tanggalAwal,
+        tanggalAkhir,
+        transaction,
+      );
+    }
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+async function buildSlipMingguanData(pegawaiIds, tanggalAwal, tanggalAkhir) {
+  const dataPegawai = sortByPegawaiIdsOrder(
+    await pegawai.findAll({
+      where: {
+        id: { [Op.in]: pegawaiIds },
+      },
+      attributes: ["id", "nama", "jabatan", "gajiPokok"],
+      include: [
+        {
+          model: Presensi,
+          as: "presensis",
+          attributes: [
+            "id",
+            "tanggal",
+            "statusPresensiId",
+            "lemburHarian",
+            "jamMasuk",
+            "jamPulang",
+          ],
+          where: {
+            tanggal: {
+              [Op.between]: [tanggalAwal, tanggalAkhir],
+            },
+          },
+          required: false,
+        },
+      ],
+      order: [[{ model: Presensi, as: "presensis" }, "tanggal", "ASC"]],
+    }),
+    pegawaiIds,
+  );
+
+  return dataPegawai.map((item) => {
+    const totalGaji = hitungTotalGajiPresensi(item.presensis, item.gajiPokok);
+
+    const detail = (item.presensis || []).map((presensi) => {
+      const upah =
+        presensi.statusPresensiId === 1 ? Number(item.gajiPokok) || 0 : 0;
+
+      return {
+        tanggal: formatTanggalIndonesia(presensi.tanggal),
+        upah: upah > 0 ? formatRupiah(upah) : "-",
+        lembur: formatLemburHarianForSlip(presensi.lemburHarian),
+      };
+    });
+
+    return {
+      nama: item.nama,
+      jabatan: item.jabatan,
+      detail,
+      total: formatRupiah(totalGaji),
+    };
+  });
+}
+
+async function buildSlipBulananData(pegawaiIds, tanggalAwal, tanggalAkhir) {
+  const payrollRecords = pickLatestPayrollPerPegawai(
+    await payroll.findAll({
+      where: {
+        pegawaiId: { [Op.in]: pegawaiIds },
+        ...buildPayrollPeriodWhere(tanggalAwal, tanggalAkhir),
+      },
+      include: [
+        { model: payrollTunjangan },
+        { model: payrollPotongan },
+        {
+          model: pegawai,
+          attributes: ["id", "nama", "jabatan", "gajiPokok"],
+        },
+      ],
+      order: [["id", "DESC"]],
+    }),
+    pegawaiIds,
+  );
+
+  return payrollRecords.map((payrollRecord) => {
+    const payrollData =
+      typeof payrollRecord.toJSON === "function"
+        ? payrollRecord.toJSON()
+        : payrollRecord;
+
+    const slip = buildPayrollSlip(
+      payrollData,
+      payrollData.pegawai?.gajiPokok,
+      payrollData.pegawai?.nama,
+    );
+
+    return buildSlipBulananDocxPayload(slip, {
+      jabatan: payrollData.pegawai?.jabatan,
+      periodeLabel: formatPeriodeLabel(
+        payrollData.periode,
+        payrollData.periodeAkhir,
+      ),
+    });
+  });
 }
 
 module.exports = {
@@ -563,6 +909,32 @@ module.exports = {
         });
       }
 
+      const existingPayrolls = await payroll.findAll({
+        where: {
+          pegawaiId: { [Op.in]: pegawaiId },
+          ...buildPayrollPeriodWhere(tanggalAwal, tanggalAkhir),
+        },
+        attributes: ["pegawaiId"],
+        include: [{ model: pegawai, attributes: ["nama"] }],
+        transaction,
+      });
+
+      if (existingPayrolls.length > 0) {
+        const duplicateNames = [
+          ...new Set(
+            existingPayrolls.map(
+              (item) => item.pegawai?.nama || `pegawai #${item.pegawaiId}`,
+            ),
+          ),
+        ].join(", ");
+
+        await transaction.rollback();
+        return res.status(400).json({
+          message: `Payroll periode ${tanggalAwal} s/d ${tanggalAkhir} sudah ada untuk: ${duplicateNames}`,
+          code: 400,
+        });
+      }
+
       const payrollResult = await createPayrollAndPengeluaran(
         pegawaiId,
         tanggalAwal,
@@ -595,12 +967,10 @@ module.exports = {
   },
 
   generateSlipGaji: async (req, res) => {
-    const transaction = await sequelize.transaction();
     try {
       const { pegawaiId, tanggalAwal, tanggalAkhir } = req.body;
 
       if (!pegawaiId || !tanggalAwal || !tanggalAkhir) {
-        await transaction.rollback();
         return res.status(400).json({
           message: "pegawaiId, tanggalAwal, dan tanggalAkhir wajib diisi",
           code: 400,
@@ -612,83 +982,108 @@ module.exports = {
         : [Number(pegawaiId)].filter(Boolean);
 
       if (pegawaiIds.length === 0) {
-        await transaction.rollback();
         return res.status(400).json({
           message: "pegawaiId tidak valid",
           code: 400,
         });
       }
 
-      const templatePath = path.join(
+      const templateMingguanPath = path.join(
         __dirname,
         "../public/slip-gaji/template-slip-gaji.docx",
       );
+      const templateBulananPath = path.join(
+        __dirname,
+        "../public/slip-gaji/template-slip-gaji-bulanan.docx",
+      );
 
-      if (!fs.existsSync(templatePath)) {
-        await transaction.rollback();
-        return res.status(404).json({
-          message: "Template slip gaji tidak ditemukan",
-          code: 404,
+      await ensurePayrollForSlip(pegawaiIds, tanggalAwal, tanggalAkhir);
+
+      const pegawaiList = await pegawai.findAll({
+        where: { id: { [Op.in]: pegawaiIds } },
+        attributes: ["id", "statusPegawaiId"],
+      });
+
+      const mingguanIds = pegawaiIds.filter((id) =>
+        pegawaiList.some(
+          (item) => item.id === id && isPegawaiMingguan(item.statusPegawaiId),
+        ),
+      );
+      const bulananIds = pegawaiIds.filter((id) =>
+        pegawaiList.some(
+          (item) => item.id === id && !isPegawaiMingguan(item.statusPegawaiId),
+        ),
+      );
+
+      const docxBuffers = [];
+
+      if (mingguanIds.length > 0) {
+        if (!fs.existsSync(templateMingguanPath)) {
+          return res.status(404).json({
+            message: "Template slip gaji mingguan tidak ditemukan",
+            code: 404,
+          });
+        }
+
+        const hasilSlipMingguan = await buildSlipMingguanData(
+          mingguanIds,
+          tanggalAwal,
+          tanggalAkhir,
+        );
+
+        if (hasilSlipMingguan.length === 0) {
+          return res.status(400).json({
+            message: "Data pegawai mingguan tidak ditemukan",
+            code: 400,
+          });
+        }
+
+        docxBuffers.push(
+          renderSlipGajiFromTemplatePath(
+            templateMingguanPath,
+            createPages(hasilSlipMingguan),
+          ),
+        );
+      }
+
+      if (bulananIds.length > 0) {
+        if (!fs.existsSync(templateBulananPath)) {
+          return res.status(404).json({
+            message: "Template slip gaji bulanan tidak ditemukan",
+            code: 404,
+          });
+        }
+
+        const hasilSlipBulanan = await buildSlipBulananData(
+          bulananIds,
+          tanggalAwal,
+          tanggalAkhir,
+        );
+
+        if (hasilSlipBulanan.length === 0) {
+          return res.status(400).json({
+            message:
+              "Data payroll bulanan tidak ditemukan untuk periode yang dipilih",
+            code: 400,
+          });
+        }
+
+        docxBuffers.push(
+          renderSlipGajiBulananFromTemplatePath(
+            templateBulananPath,
+            createPagesBulanan(hasilSlipBulanan),
+          ),
+        );
+      }
+
+      if (docxBuffers.length === 0) {
+        return res.status(400).json({
+          message: "Tidak ada slip gaji yang dapat dibuat",
+          code: 400,
         });
       }
 
-      await createPayrollAndPengeluaran(
-        pegawaiIds,
-        tanggalAwal,
-        tanggalAkhir,
-        transaction,
-      );
-
-      const dataPegawai = await pegawai.findAll({
-        where: {
-          id: { [Op.in]: pegawaiIds },
-        },
-        attributes: ["id", "nama", "jabatan", "gajiPokok"],
-        include: [
-          {
-            model: Presensi,
-            as: "presensis",
-            where: {
-              tanggal: {
-                [Op.between]: [tanggalAwal, tanggalAkhir],
-              },
-            },
-            required: false,
-          },
-        ],
-        order: [
-          ["nama", "ASC"],
-          [{ model: Presensi, as: "presensis" }, "tanggal", "ASC"],
-        ],
-      });
-      const hasilSlip = dataPegawai.map((item) => {
-        const totalGaji = hitungTotalGajiPresensi(
-          item.presensis,
-          item.gajiPokok,
-        );
-
-        const detail = (item.presensis || []).map((presensi) => {
-          const upah =
-            presensi.statusPresensiId === 1 ? Number(item.gajiPokok) || 0 : 0;
-
-          return {
-            tanggal: formatTanggalIndonesia(presensi.tanggal),
-            upah: upah > 0 ? formatRupiah(upah) : "-",
-            lembur: "-",
-          };
-        });
-
-        return {
-          nama: item.nama,
-          jabatan: item.jabatan,
-          detail,
-          total: formatRupiah(totalGaji),
-        };
-      });
-
-      const pages = createPages(hasilSlip);
-
-      const buffer = renderSlipGajiFromTemplatePath(templatePath, pages);
+      const buffer = mergeDocxBuffers(docxBuffers);
 
       const outputFileName = `slip-gaji_${Date.now()}.docx`;
       const outputPath = path.join(
@@ -703,8 +1098,6 @@ module.exports = {
 
       fs.writeFileSync(outputPath, buffer);
 
-      await transaction.commit();
-
       res.setHeader(
         "Content-Disposition",
         `attachment; filename=${outputFileName}`,
@@ -717,7 +1110,6 @@ module.exports = {
       res.send(buffer);
       fs.unlinkSync(outputPath);
     } catch (error) {
-      await transaction.rollback();
       console.error(error);
       if (error.statusCode === 400) {
         return res.status(400).json({
