@@ -1,6 +1,6 @@
 const {
   pegawai,
-  Presensi,
+  presensi,
   statusPegawai,
   statusPresensi,
   sequelize,
@@ -113,7 +113,7 @@ module.exports = {
       const rows = await pegawai.findAll({
         include: [
           {
-            model: Presensi,
+            model: presensi,
             as: "presensis",
             where: {
               tanggal: {
@@ -188,7 +188,7 @@ module.exports = {
 
         const { startOfDay, endOfDay, tanggalDate } = tanggalRange;
 
-        const existing = await Presensi.findOne({
+        const existing = await presensi.findOne({
           where: {
             pegawaiId,
             tanggal: { [Op.between]: [startOfDay, endOfDay] },
@@ -238,7 +238,7 @@ module.exports = {
           const jamMasuk = jamPayload.jamMasuk ?? null;
           const jamPulang = jamPayload.jamPulang ?? null;
 
-          const created = await Presensi.create(
+          const created = await presensi.create(
             {
               pegawaiId,
               tanggal: tanggalDate,
@@ -315,7 +315,7 @@ module.exports = {
 
       const presensiRows =
         pegawaiIds.length > 0
-          ? await Presensi.findAll({
+          ? await presensi.findAll({
               where: {
                 pegawaiId: { [Op.in]: pegawaiIds },
                 tanggal: { [Op.between]: [startOfMonth, endOfMonth] },

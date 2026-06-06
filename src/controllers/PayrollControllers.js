@@ -17,7 +17,7 @@ const {
   metodePembayaran,
   jenisPengeluaran,
   statusPembayaran,
-  Presensi,
+  presensi,
 } = require("../models");
 const { Op } = require("sequelize");
 const ExcelJS = require("exceljs");
@@ -316,7 +316,7 @@ async function createPayrollAndPengeluaran(
         ],
         transaction,
       }),
-      Presensi.findAll({
+      presensi.findAll({
         where: {
           pegawaiId: { [Op.in]: pegawaiId },
           tanggal: { [Op.between]: [tanggalAwal, tanggalAkhir] },
@@ -500,7 +500,7 @@ async function buildSlipMingguanData(pegawaiIds, tanggalAwal, tanggalAkhir) {
       attributes: ["id", "nama", "jabatan", "gajiPokok"],
       include: [
         {
-          model: Presensi,
+          model: presensi,
           as: "presensis",
           attributes: [
             "id",
@@ -518,7 +518,7 @@ async function buildSlipMingguanData(pegawaiIds, tanggalAwal, tanggalAkhir) {
           required: false,
         },
       ],
-      order: [[{ model: Presensi, as: "presensis" }, "tanggal", "ASC"]],
+      order: [[{ model: presensi, as: "presensis" }, "tanggal", "ASC"]],
     }),
     pegawaiIds,
   );
