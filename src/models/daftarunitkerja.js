@@ -101,7 +101,7 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.templateBPD, {
         foreignKey: "unitKerjaId",
       });
-      this.hasMany(models.Presensi, {
+      this.hasMany(models.presensi, {
         foreignKey: "unitKerjaId",
         as: "presensis",
       });
