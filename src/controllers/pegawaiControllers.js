@@ -200,13 +200,23 @@ module.exports = {
     const alfabet = req.query.alfabet || "ASC";
     const time = req.query.time?.toUpperCase() === "DESC" ? "DESC" : "ASC";
     const offset = limit * page;
-    console.log(req.query);
-    const whereCondition = {
-      nama: { [Op.like]: "%" + search + "%" },
-      nip: { [Op.like]: "%" + filterNip + "%" },
-      jabatan: { [Op.like]: "%" + filterJabatan + "%" },
-      pendidikan: { [Op.like]: "%" + filterPendidikan + "%" },
-    };
+    const whereCondition = {};
+
+    if (search) {
+      whereCondition.nama = { [Op.like]: `%${search}%` };
+    }
+    if (filterNip) {
+      whereCondition[Op.or] = [
+        { nip: { [Op.like]: `%${filterNip}%` } },
+        { nik: { [Op.like]: `%${filterNip}%` } },
+      ];
+    }
+    if (filterJabatan) {
+      whereCondition.jabatan = { [Op.like]: `%${filterJabatan}%` };
+    }
+    if (filterPendidikan) {
+      whereCondition.pendidikan = { [Op.like]: `%${filterPendidikan}%` };
+    }
 
     if (unitKerjaId) {
       whereCondition.unitKerjaId = unitKerjaId;
@@ -219,44 +229,29 @@ module.exports = {
     if (statusPegawaiId) {
       whereCondition.statusPegawaiId = statusPegawaiId;
     }
-    if (pangkatId) {
-      whereCondition.pangkatId = pangkatId;
-    }
-    if (golonganId) {
-      whereCondition.golonganId = golonganId;
-    }
-    if (tingkatanId) {
-      whereCondition.tingkatanId = tingkatanId;
-    }
+
+    const includeRelations = [
+      { model: statusPegawai, as: "statusPegawai", required: false },
+      { model: profesi, as: "profesi", required: false },
+      {
+        model: daftarUnitKerja,
+        as: "daftarUnitKerja",
+        attributes: ["id", "unitKerja"],
+        required: false,
+      },
+    ];
+
     try {
       const result = await pegawai.findAll({
         where: whereCondition,
         offset,
         limit,
-        order: [
-          // ["updatedAt", `${time}`],
-          ["nama", `${alfabet}`],
-        ],
+        order: [["nama", alfabet]],
         attributes: ["id", "nama", "nip", "jabatan", "pendidikan", "nik"],
-        include: [
-          { model: statusPegawai, as: "statusPegawai" },
-
-          { model: profesi, as: "profesi" },
-          {
-            model: daftarUnitKerja,
-            as: "daftarUnitKerja",
-            attributes: ["id", "unitKerja"],
-          },
-        ],
+        include: includeRelations,
       });
       const totalRows = await pegawai.count({
         where: whereCondition,
-        offset,
-        limit,
-        order: [
-          // ["updatedAt", `${time}`],
-          ["nama", `${alfabet}`],
-        ],
       });
       const totalPage = Math.ceil(totalRows / limit);
 
@@ -729,6 +724,51 @@ module.exports = {
       return res.status(500).json({
         success: false,
         message: err.toString(),
+      });
+    }
+  },
+
+  hapusPegawai: async (req, res) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const { id } = req.params;
+
+      const pegawaiData = await pegawai.findByPk(id, { transaction });
+      if (!pegawaiData) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Pegawai tidak ditemukan" });
+      }
+
+      const profil = await profile.findOne({
+        where: { pegawaiId: id },
+        transaction,
+      });
+
+      if (profil?.userId) {
+        await userRole.destroy({
+          where: { userId: profil.userId },
+          transaction,
+        });
+        await user.destroy({
+          where: { id: profil.userId },
+          transaction,
+        });
+      }
+
+      await pegawai.destroy({ where: { id }, transaction });
+
+      await transaction.commit();
+      return res.status(200).json({
+        success: true,
+        message: "Pegawai berhasil dihapus",
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menghapus pegawai",
+        error: err.toString(),
       });
     }
   },

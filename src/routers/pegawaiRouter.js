@@ -7,13 +7,14 @@ const routers = express.Router();
 routers.get("/get", pegawaiControllers.getPegawai);
 routers.get(
   "/get/daftar",
-  authenticateUser,
-  pegawaiControllers.getDaftarPegawai
+  // authenticateUser,
+  pegawaiControllers.getDaftarPegawai,
 );
 routers.get("/get/one-pegawai/:id", pegawaiControllers.getOnePegawai);
 routers.get("/get/seed", pegawaiControllers.getSeedPegawai);
 routers.post("/edit", pegawaiControllers.editPegawai);
 routers.post("/post", authenticateUser, pegawaiControllers.addPegawai);
+routers.post("/hapus/:id", authenticateUser, pegawaiControllers.hapusPegawai);
 routers.get("/get/detail-pegawai/:id", pegawaiControllers.getDetailPegawai);
 routers.get("/search", pegawaiControllers.searchPegawai);
 routers.get("/get/unit-kerja-pegawai", pegawaiControllers.getPegawaiStatistik);
@@ -21,12 +22,12 @@ routers.get("/get/unit-kerja-pegawai", pegawaiControllers.getPegawaiStatistik);
 routers.get(
   "/get/download",
   authenticateUser,
-  pegawaiControllers.getDownloadPegawai
+  pegawaiControllers.getDownloadPegawai,
 );
 routers.get(
   "/get/unit-kerja/:id",
   authenticateUser,
-  pegawaiControllers.getPegawaiUnitKerja
+  pegawaiControllers.getPegawaiUnitKerja,
 );
 routers.post("/post/batch", pegawaiControllers.getPegawaiBatch);
 routers.post("/personil/edit-pegawai", pegawaiControllers.editPersonil);
@@ -41,7 +42,7 @@ routers.post(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     prefix: "USULAN",
   }).single("file"),
-  pegawaiControllers.uploadBerkas
+  pegawaiControllers.uploadBerkas,
 );
 routers.get("/get/usulan/:id", pegawaiControllers.getDokumen);
 routers.get("/get/usulan", pegawaiControllers.getUsulan);

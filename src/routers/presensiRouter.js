@@ -12,4 +12,8 @@ routers.get(
 );
 routers.post("/post", presensiControllers.postPresensiMingguan);
 routers.post("/get/status", presensiControllers.getStatusPresensi);
+routers.get(
+  "/get/rekap-mingguan",
+  presensiControllers.getRekapPresensiMingguan,
+);
 module.exports = routers;

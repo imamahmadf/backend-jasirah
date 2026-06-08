@@ -5,8 +5,10 @@ const {
   statusPresensi,
   sequelize,
   daftarUnitKerja,
+  profesi,
 } = require("../models");
 const { Op } = require("sequelize");
+const ExcelJS = require("exceljs");
 
 const normalizePresensiInput = (body) => {
   if (Array.isArray(body)) return body;
@@ -78,6 +80,30 @@ const getMonthRangeUtc = (tahun, bulan) => {
   const endOfMonth = new Date(Date.UTC(tahun, bulan, 0, 23, 59, 59, 999));
   const daysInMonth = endOfMonth.getUTCDate();
   return { startOfMonth, endOfMonth, daysInMonth };
+};
+
+const buildDateList = (tanggalAwal, tanggalAkhir) => {
+  const dates = [];
+  const current = new Date(`${tanggalAwal}T00:00:00.000Z`);
+  const end = new Date(`${tanggalAkhir}T00:00:00.000Z`);
+  while (current <= end) {
+    dates.push(toDateKeyUtc(current));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+};
+
+const formatHariLabel = (dateKey) => {
+  const d = new Date(`${dateKey}T00:00:00.000Z`);
+  const hari = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+  const tgl = String(d.getUTCDate()).padStart(2, "0");
+  const bln = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${tgl}/${bln} (${hari[d.getUTCDay()]})`;
+};
+
+const formatSelPresensi = (status, unitKerja) => {
+  if (!status && !unitKerja) return "-";
+  return `${status || "-"}\n${unitKerja || "-"}`;
 };
 
 const buildAllDayEvent = (tanggal, jumlahMasuk, jumlahPulang) => {
@@ -386,6 +412,131 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
+    }
+  },
+
+  getRekapPresensiMingguan: async (req, res) => {
+    const { tanggalAwal, tanggalAkhir } = req.query;
+
+    if (!tanggalAwal || !tanggalAkhir) {
+      return res.status(400).json({
+        message: "Query parameter `tanggalAwal` dan `tanggalAkhir` wajib diisi.",
+        code: 400,
+      });
+    }
+
+    const startOfRange = new Date(`${tanggalAwal}T00:00:00.000Z`);
+    const endOfRange = new Date(`${tanggalAkhir}T23:59:59.999Z`);
+
+    if (
+      Number.isNaN(startOfRange.getTime()) ||
+      Number.isNaN(endOfRange.getTime())
+    ) {
+      return res.status(400).json({
+        message: "Format tanggal tidak valid. Gunakan YYYY-MM-DD.",
+        code: 400,
+      });
+    }
+
+    if (startOfRange > endOfRange) {
+      return res.status(400).json({
+        message: "tanggalAwal tidak boleh lebih besar dari tanggalAkhir.",
+        code: 400,
+      });
+    }
+
+    try {
+      const dateList = buildDateList(tanggalAwal, tanggalAkhir);
+
+      const pegawaiList = await pegawai.findAll({
+        where: { statusPegawaiId: 5 },
+        attributes: ["id", "nama", "jabatan"],
+        order: [["nama", "ASC"]],
+      });
+      const pegawaiIds = pegawaiList.map((p) => p.id);
+
+      const presensiRows =
+        pegawaiIds.length > 0
+          ? await presensi.findAll({
+              where: {
+                pegawaiId: { [Op.in]: pegawaiIds },
+                tanggal: { [Op.between]: [startOfRange, endOfRange] },
+              },
+              attributes: ["pegawaiId", "tanggal"],
+              include: [
+                { model: statusPresensi, attributes: ["nama"] },
+                {
+                  model: daftarUnitKerja,
+                  as: "daftarUnitKerja",
+                  attributes: ["unitKerja"],
+                },
+              ],
+            })
+          : [];
+
+      const presensiByPegawai = {};
+      for (const row of presensiRows) {
+        const dateKey = toDateKeyUtc(row.tanggal);
+        if (!dateKey) continue;
+        if (!presensiByPegawai[row.pegawaiId]) {
+          presensiByPegawai[row.pegawaiId] = {};
+        }
+        presensiByPegawai[row.pegawaiId][dateKey] = formatSelPresensi(
+          row.statusPresensi?.nama,
+          row.daftarUnitKerja?.unitKerja,
+        );
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Rekap Presensi Mingguan");
+
+      worksheet.columns = [
+        { header: "Nama", key: "nama", width: 30 },
+        { header: "Jabatan", key: "jabatan", width: 25 },
+        ...dateList.map((d, i) => ({
+          header: formatHariLabel(d),
+          key: `hari_${i}`,
+          width: 22,
+        })),
+      ];
+
+      pegawaiList.forEach((p) => {
+        const rowData = {
+          nama: p.nama || "-",
+          jabatan: p.jabatan || "-",
+        };
+        dateList.forEach((d, i) => {
+          rowData[`hari_${i}`] = presensiByPegawai[p.id]?.[d] || "-";
+        });
+        const excelRow = worksheet.addRow(rowData);
+        dateList.forEach((_, i) => {
+          excelRow.getCell(`hari_${i}`).alignment = {
+            vertical: "top",
+            wrapText: true,
+          };
+        });
+      });
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=rekap-presensi-mingguan-${tanggalAwal}_${tanggalAkhir}.xlsx`,
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: err.toString(),
+        code: 500,
+      });
     }
   },
 };

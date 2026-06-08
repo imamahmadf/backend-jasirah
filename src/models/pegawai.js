@@ -96,6 +96,9 @@ module.exports = (sequelize, DataTypes) => {
       profesiId: DataTypes.INTEGER,
       tanggalTMT: DataTypes.DATE,
       gajiPokok: DataTypes.INTEGER,
+      alamat: DataTypes.STRING,
+      tempatLahir: DataTypes.STRING,
+      tanggalLahir: DataTypes.DATE,
     },
     {
       sequelize,
