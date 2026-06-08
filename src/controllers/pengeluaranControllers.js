@@ -537,6 +537,20 @@ module.exports = {
     }
   },
 
+  hapusPengeluaran: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const result = await pengeluaran.destroy({ where: { id } });
+
+      return res.status(200).json({
+        result,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   getDashboardPengeluaran: async (req, res) => {
     try {
       const {

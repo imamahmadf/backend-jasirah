@@ -33,5 +33,6 @@ routers.get(
 );
 
 routers.get("/get/detail/:id", pengeluaranControllers.getDetailPengeluaran);
+routers.get("/delete/:id", pengeluaranControllers.hapusPengeluaran);
 
 module.exports = routers;

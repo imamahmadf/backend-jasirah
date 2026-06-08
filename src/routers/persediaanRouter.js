@@ -22,4 +22,9 @@ router.get("/get/detail-keluar", persediaanControllers.getStokKeluar);
 router.get("/get/tracking-list/:unitKerjaId", persediaanControllers.getTrackingList);
 router.get("/get/tracking/:persediaanId", persediaanControllers.getTrackingDetail);
 router.post("/post/keluar", persediaanControllers.postKeluar);
+router.get(
+  "/delete/keluar/:id",
+  persediaanControllers.hapusStokKeluar,
+);
+router.post("/edit/keluar", persediaanControllers.editStokKeluar);
 module.exports = router;

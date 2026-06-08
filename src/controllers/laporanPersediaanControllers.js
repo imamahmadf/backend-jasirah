@@ -200,4 +200,73 @@ module.exports = {
       });
     }
   },
+
+  hapusStokMasuk: async (req, res) => {
+    const { id } = req.params;
+    try {
+      // 1. Ambil data laporan persediaan dari DB lokal
+      const result = await stokMasuk.destroy({ where: { id } });
+
+      return res.status(200).json({
+        result,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menghapus data stok masuk",
+        error: err.toString(),
+      });
+    }
+  },
+
+  editStokMasuk: async (req, res) => {
+    const {
+      id,
+      jumlah,
+      hargaSatuan,
+      keterangan,
+      sumberDanaId,
+      satuanPersediaanId,
+      spesifikasi,
+      foto: fotoExisting,
+    } = req.body;
+
+    const toInt = (val) => {
+      if (val === "" || val == null || val === undefined) return null;
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? null : n;
+    };
+
+    try {
+      let foto = fotoExisting || null;
+      if (req.file) {
+        foto = `/persediaan/${req.file.filename}`;
+      }
+
+      const result = await stokMasuk.update(
+        {
+          jumlah: toInt(jumlah),
+          hargaSatuan: toInt(hargaSatuan),
+          keterangan: keterangan || null,
+          sumberDanaId: toInt(sumberDanaId),
+          satuanPersediaanId: toInt(satuanPersediaanId),
+          spesifikasi: spesifikasi || null,
+          foto,
+        },
+        { where: { id: toInt(id) } },
+      );
+
+      return res.status(200).json({
+        result,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengubah data stok masuk",
+        error: err.toString(),
+      });
+    }
+  },
 };

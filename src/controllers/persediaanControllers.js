@@ -7,6 +7,7 @@ const {
   obPersediaan,
   laporanPersediaan,
   sumberDana,
+  daftarUnitKerja,
 } = require("../models");
 
 const { Op, fn, col, literal } = require("sequelize");
@@ -657,15 +658,96 @@ module.exports = {
     }
   },
 
+  hapusStokKeluar: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const keluar = await stokKeluar.findByPk(id);
+      if (!keluar) {
+        return res
+          .status(404)
+          .json({ message: "Data stok keluar tidak ditemukan" });
+      }
+
+      await stokKeluar.destroy({ where: { id } });
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: "Gagal menghapus data stok keluar",
+        error: err.toString(),
+      });
+    }
+  },
+
+  editStokKeluar: async (req, res) => {
+    const { id, jumlah, tujuan, tanggal, keterangan } = req.body;
+
+    const toInt = (val) => {
+      if (val === "" || val == null || val === undefined) return null;
+      const n = parseInt(val, 10);
+      return Number.isNaN(n) ? null : n;
+    };
+
+    try {
+      const keluar = await stokKeluar.findByPk(id);
+      if (!keluar) {
+        return res
+          .status(404)
+          .json({ message: "Data stok keluar tidak ditemukan" });
+      }
+
+      const masuk = await stokMasuk.findByPk(keluar.stokMasukId);
+      if (!masuk) {
+        return res.status(404).json({ message: "Stok masuk tidak ditemukan" });
+      }
+
+      const totalKeluarLain =
+        (await stokKeluar.sum("jumlah", {
+          where: {
+            stokMasukId: keluar.stokMasukId,
+            id: { [Op.ne]: id },
+          },
+        })) || 0;
+      const sisaStok = masuk.jumlah - totalKeluarLain;
+      const jumlahBaru = toInt(jumlah);
+
+      if (jumlahBaru > sisaStok) {
+        return res.status(400).json({
+          message: `Jumlah keluar melebihi sisa stok. Sisa tersedia: ${sisaStok}`,
+        });
+      }
+
+      const result = await stokKeluar.update(
+        {
+          jumlah: jumlahBaru,
+          tujuan: tujuan || null,
+          tanggal,
+          keterangan: keterangan || null,
+        },
+        { where: { id: toInt(id) } },
+      );
+
+      return res.status(200).json({ result });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        message: "Gagal mengubah data stok keluar",
+        error: err.toString(),
+      });
+    }
+  },
+
   getTrackingList: async (req, res) => {
     const unitKerjaId = req.params.unitKerjaId;
     const { q } = req.query;
+    const isAll = unitKerjaId === "all";
 
     try {
       const persediaanWhere = q ? { nama: { [Op.like]: `%${q}%` } } : undefined;
+      const masukWhere = isAll ? {} : { unitKerjaId };
 
       const masukRows = await stokMasuk.findAll({
-        where: { unitKerjaId },
+        where: masukWhere,
         include: [
           {
             model: persediaan,
@@ -682,6 +764,14 @@ module.exports = {
             attributes: ["jumlah", "tanggal"],
             required: false,
           },
+          ...(isAll
+            ? [
+                {
+                  model: daftarUnitKerja,
+                  attributes: ["id", "unitKerja"],
+                },
+              ]
+            : []),
         ],
         order: [["tanggal", "DESC"]],
       });
@@ -690,9 +780,12 @@ module.exports = {
 
       masukRows.forEach((sm) => {
         const pid = sm.persediaanId;
-        if (!grouped.has(pid)) {
-          grouped.set(pid, {
+        const groupKey = isAll ? `${pid}-${sm.unitKerjaId}` : String(pid);
+        if (!grouped.has(groupKey)) {
+          grouped.set(groupKey, {
             persediaanId: pid,
+            unitKerjaId: sm.unitKerjaId,
+            unitKerja: sm.daftarUnitKerja?.unitKerja || null,
             kodeBarang: sm.persediaan?.kodeBarang,
             nama: sm.persediaan?.nama,
             NUSP: sm.persediaan?.NUSP,
@@ -705,7 +798,7 @@ module.exports = {
           });
         }
 
-        const row = grouped.get(pid);
+        const row = grouped.get(groupKey);
         const keluarBatch = sm.stokKeluars
           ? sm.stokKeluars.reduce((sum, k) => sum + (k.jumlah || 0), 0)
           : 0;
@@ -731,7 +824,7 @@ module.exports = {
 
       return res.status(200).json({
         success: true,
-        unitKerjaId: Number(unitKerjaId),
+        unitKerjaId: isAll ? "all" : Number(unitKerjaId),
         result,
         totalRows: result.length,
       });
