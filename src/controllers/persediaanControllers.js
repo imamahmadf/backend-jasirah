@@ -532,8 +532,16 @@ module.exports = {
           "sumberDanaId",
           "hargaSatuan",
           "foto",
+          "unitKerjaId",
+        ],
+        include: [
+          {
+            model: daftarUnitKerja,
+            attributes: ["id", "unitKerja"],
+          },
         ],
         raw: true,
+        nest: true,
       });
 
       const stokMasukMap = new Map(stokMasukLengkap.map((sm) => [sm.id, sm]));
@@ -594,6 +602,8 @@ module.exports = {
           data.push({
             stokMasukId: stokMasukId,
             persediaanId: persediaanId,
+            unitKerjaId: stokMasukInfo.unitKerjaId,
+            unitKerja: stokMasukInfo.daftarUnitKerja?.unitKerja || null,
             kodeBarang: info.kodeBarang,
             namaPersediaan: info.nama,
             kodeRekening: info.tipePersediaan?.kodeRekening || null,
