@@ -8,14 +8,15 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      // define association here
       this.belongsTo(models.stokMasuk);
       this.belongsTo(models.laporanPersediaan);
+      this.belongsTo(models.mutasiPersediaan);
     }
   }
   stokKeluar.init(
     {
       stokMasukId: DataTypes.INTEGER,
+      mutasiPersediaanId: DataTypes.INTEGER,
       jumlah: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
       tujuan: DataTypes.STRING,

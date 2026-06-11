@@ -146,15 +146,18 @@ module.exports = {
 
   getMutasiList: async (req, res) => {
     const { unitKerjaId } = req.params;
+    const isAll = unitKerjaId === "all";
 
     try {
       const result = await mutasiPersediaan.findAll({
-        where: {
-          [Op.or]: [
-            { unitKerjaAsalId: unitKerjaId },
-            { unitKerjaTujuanId: unitKerjaId },
-          ],
-        },
+        where: isAll
+          ? {}
+          : {
+              [Op.or]: [
+                { unitKerjaAsalId: unitKerjaId },
+                { unitKerjaTujuanId: unitKerjaId },
+              ],
+            },
         include: mutasiListInclude,
         order: [["tanggal", "DESC"], ["id", "DESC"]],
       });
@@ -267,6 +270,7 @@ module.exports = {
       await stokKeluar.create(
         {
           stokMasukId: stokMasukAsalId,
+          mutasiPersediaanId: mutasi.id,
           jumlah: Number(jumlah),
           tanggal,
           tujuan: `Mutasi ke ${labelTujuan}`,
@@ -311,6 +315,99 @@ module.exports = {
       return res.status(500).json({
         success: false,
         message: "Gagal menyimpan mutasi persediaan",
+        error: err.toString(),
+      });
+    }
+  },
+
+  batalkanMutasi: async (req, res) => {
+    const { id } = req.params;
+    let transaction;
+
+    try {
+      transaction = await sequelize.transaction();
+
+      const mutasi = await mutasiPersediaan.findByPk(id, { transaction });
+      if (!mutasi) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Mutasi tidak ditemukan" });
+      }
+
+      if (mutasi.status === "dibatalkan") {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Mutasi sudah dibatalkan sebelumnya" });
+      }
+
+      const masukTujuan = mutasi.stokMasukTujuanId
+        ? await stokMasuk.findByPk(mutasi.stokMasukTujuanId, { transaction })
+        : await stokMasuk.findOne({
+            where: { mutasiPersediaanId: mutasi.id },
+            transaction,
+          });
+
+      if (!masukTujuan) {
+        await transaction.rollback();
+        return res.status(404).json({
+          message: "Data stok masuk tujuan mutasi tidak ditemukan",
+        });
+      }
+
+      const totalKeluarTujuan =
+        (await stokKeluar.sum("jumlah", {
+          where: { stokMasukId: masukTujuan.id },
+          transaction,
+        })) || 0;
+
+      if (totalKeluarTujuan > 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          message:
+            "Stok hasil mutasi di unit tujuan sudah digunakan, mutasi tidak dapat dibatalkan",
+        });
+      }
+
+      let keluar = await stokKeluar.findOne({
+        where: { mutasiPersediaanId: mutasi.id },
+        transaction,
+      });
+
+      if (!keluar) {
+        keluar = await stokKeluar.findOne({
+          where: {
+            stokMasukId: mutasi.stokMasukAsalId,
+            jumlah: mutasi.jumlah,
+            [Op.or]: [
+              { keterangan: { [Op.like]: `%#${mutasi.id}%` } },
+              { tujuan: { [Op.like]: "Mutasi ke%" } },
+            ],
+          },
+          transaction,
+        });
+      }
+
+      if (!keluar) {
+        await transaction.rollback();
+        return res.status(404).json({
+          message: "Data stok keluar mutasi tidak ditemukan",
+        });
+      }
+
+      await keluar.destroy({ transaction });
+      await masukTujuan.destroy({ transaction });
+      await mutasi.destroy({ transaction });
+
+      await transaction.commit();
+
+      return res.status(200).json({
+        success: true,
+        message: "Mutasi berhasil dibatalkan. Stok telah dikembalikan ke kondisi semula.",
+      });
+    } catch (err) {
+      if (transaction) await transaction.rollback();
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal membatalkan mutasi persediaan",
         error: err.toString(),
       });
     }

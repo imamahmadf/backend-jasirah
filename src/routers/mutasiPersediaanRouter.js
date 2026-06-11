@@ -16,5 +16,6 @@ router.get(
 );
 router.get("/get/detail/:id", mutasiPersediaanControllers.getMutasiDetail);
 router.post("/post", mutasiPersediaanControllers.postMutasi);
+router.delete("/delete/:id", mutasiPersediaanControllers.batalkanMutasi);
 
 module.exports = router;
