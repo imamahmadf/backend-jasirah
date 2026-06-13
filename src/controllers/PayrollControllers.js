@@ -605,9 +605,9 @@ module.exports = {
     console.log(req.query);
     const whereCondition = {
       nama: { [Op.like]: "%" + search + "%" },
-      nip: { [Op.like]: "%" + filterNip + "%" },
-      jabatan: { [Op.like]: "%" + filterJabatan + "%" },
-      pendidikan: { [Op.like]: "%" + filterPendidikan + "%" },
+      // nip: { [Op.like]: "%" + filterNip + "%" },
+      // jabatan: { [Op.like]: "%" + filterJabatan + "%" },
+      // pendidikan: { [Op.like]: "%" + filterPendidikan + "%" },
     };
 
     if (unitKerjaId) {
@@ -990,7 +990,7 @@ module.exports = {
 
       const templateMingguanPath = path.join(
         __dirname,
-        "../public/slip-gaji/template-slip-gaji.docx",
+        "../public/slip-gaji/template-slip-gaji-v2.docx",
       );
       const templateBulananPath = path.join(
         __dirname,
