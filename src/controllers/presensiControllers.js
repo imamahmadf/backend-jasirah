@@ -154,6 +154,7 @@ module.exports = {
           },
         ],
         where: { statusPegawaiId: 5 },
+        order: [["nama", "ASC"]],
       });
 
       const result = rows.map((row) => {
@@ -420,7 +421,8 @@ module.exports = {
 
     if (!tanggalAwal || !tanggalAkhir) {
       return res.status(400).json({
-        message: "Query parameter `tanggalAwal` dan `tanggalAkhir` wajib diisi.",
+        message:
+          "Query parameter `tanggalAwal` dan `tanggalAkhir` wajib diisi.",
         code: 400,
       });
     }
@@ -518,7 +520,10 @@ module.exports = {
       });
 
       worksheet.getRow(1).font = { bold: true };
-      worksheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+      worksheet.getRow(1).alignment = {
+        vertical: "middle",
+        horizontal: "center",
+      };
 
       res.setHeader(
         "Content-Type",
