@@ -1,7 +1,5 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
+"use strict";
+const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   class konfirmasiPenerimaan extends Model {
     /**
@@ -12,21 +10,25 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       this.belongsTo(models.suratJalan, { foreignKey: "suratJalanId" });
       this.belongsTo(models.pegawai, { foreignKey: "pegawaiId" });
-      this.hasMany(models.pengisianTanki, {
-        foreignKey: "konfirmasiPenerimaanId",
+      this.belongsTo(models.pengisianTanki, {
+        foreignKey: "pengisianTankiId",
       });
     }
   }
-  konfirmasiPenerimaan.init({
-    nomor: DataTypes.STRING,
-    suratJalanId: DataTypes.INTEGER,
-    tanggal: DataTypes.DATE,
-    volume: DataTypes.INTEGER,
-    pegawaiId: DataTypes.INTEGER,
-    catatan: DataTypes.STRING
-  }, {
-    sequelize,
-    modelName: 'konfirmasiPenerimaan',
-  });
+  konfirmasiPenerimaan.init(
+    {
+      nomor: DataTypes.STRING,
+      suratJalanId: DataTypes.INTEGER,
+      tanggal: DataTypes.DATE,
+      volume: DataTypes.INTEGER,
+      pegawaiId: DataTypes.INTEGER,
+      catatan: DataTypes.STRING,
+      pengisianTankiId: DataTypes.INTEGER,
+    },
+    {
+      sequelize,
+      modelName: "konfirmasiPenerimaan",
+    },
+  );
   return konfirmasiPenerimaan;
 };

@@ -147,7 +147,7 @@ module.exports = {
       // const baseUrl = isProduction
       //   ? env.APP_BASE_URL_PROD || "https://pena.dinkes.paserkab.go.id"
       //   : env.APP_BASE_URL_DEV || "http://localhost:5173";
-      const baseUrl = "https://pena.dinkes.paserkab.go.id";
+      const baseUrl = "https://jasirahcore.cloud/";
       const logoPath = path.join(
         __dirname,
         "../public/template-keuangan/penaLogo.png",

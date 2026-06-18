@@ -40,6 +40,10 @@ const payrollRouter = require("./payrollRouter");
 const mutasiPersediaanRouter = require("./mutasiPersediaanRouter");
 const presensiRouter = require("./presensiRouter");
 const pengeluaranRouter = require("./pengeluaranRouter");
+const mitraRouter = require("./mitraRouter");
+const pengirimanRouter = require("./pengirimanRouter");
+const tankiRouter = require("./tankiRouter");
+
 module.exports = {
   perjalananRouter,
   pegawaiRouter,
@@ -83,4 +87,7 @@ module.exports = {
   mutasiPersediaanRouter,
   presensiRouter,
   pengeluaranRouter,
+  mitraRouter,
+  pengirimanRouter,
+  tankiRouter,
 };

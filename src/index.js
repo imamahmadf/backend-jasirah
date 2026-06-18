@@ -49,6 +49,9 @@ const {
   mutasiPersediaanRouter,
   presensiRouter,
   pengeluaranRouter,
+  mitraRouter,
+  pengirimanRouter,
+  tankiRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -160,7 +163,9 @@ app.use("/api/payroll", payrollRouter);
 app.use("/api/mutasi-persediaan", mutasiPersediaanRouter);
 app.use("/api/presensi", presensiRouter);
 app.use("/api/pengeluaran", pengeluaranRouter);
-
+app.use("/api/mitra", mitraRouter);
+app.use("/api/pengiriman", pengirimanRouter);
+app.use("/api/tanki", tankiRouter);
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);
 });

@@ -1,7 +1,5 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
+"use strict";
+const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   class pengisianTanki extends Model {
     /**
@@ -10,27 +8,32 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      this.belongsTo(models.konfirmasiPenerimaan, {
-        foreignKey: "konfirmasiPenerimaanId",
+      this.hasMany(models.konfirmasiPenerimaan, {
+        foreignKey: "pengisianTankiId",
       });
       this.belongsTo(models.tanki, { foreignKey: "tangkiId" });
+      this.belongsTo(models.BAPenerimaan, { foreignKey: "BAPenerimaanId" });
     }
   }
-  pengisianTanki.init({
-    konfirmasiPenerimaanId: DataTypes.INTEGER,
-    tangkiId: DataTypes.INTEGER,
-    flowMeter: DataTypes.INTEGER,
-    gross: DataTypes.INTEGER,
-    net: DataTypes.INTEGER,
-    penampilanVisual: DataTypes.STRING,
-    warna: DataTypes.STRING,
-    kandunganAir: DataTypes.INTEGER,
-    BSW: DataTypes.INTEGER,
-    catatan: DataTypes.STRING,
-    saksi: DataTypes.STRING
-  }, {
-    sequelize,
-    modelName: 'pengisianTanki',
-  });
+  pengisianTanki.init(
+    {
+      tangkiId: DataTypes.INTEGER,
+      flowMeter: DataTypes.INTEGER,
+      gross: DataTypes.INTEGER,
+      net: DataTypes.INTEGER,
+      penampilanVisual: DataTypes.STRING,
+      warna: DataTypes.STRING,
+      kandunganAir: DataTypes.INTEGER,
+      BSW: DataTypes.INTEGER,
+      catatan: DataTypes.STRING,
+      saksi: DataTypes.STRING,
+      BAPenerimaanId: DataTypes.INTEGER,
+      tanggal: DataTypes.DATE,
+    },
+    {
+      sequelize,
+      modelName: "pengisianTanki",
+    },
+  );
   return pengisianTanki;
 };

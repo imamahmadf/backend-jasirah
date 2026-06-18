@@ -27,6 +27,9 @@ module.exports = {
       catatan: {
         type: Sequelize.STRING,
       },
+      pengisianTankiId: {
+        type: Sequelize.INTEGER,
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,

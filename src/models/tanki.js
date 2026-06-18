@@ -17,6 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       unitKerjaId: DataTypes.INTEGER,
       kode: DataTypes.STRING,
       foto: DataTypes.STRING,
+      kapasitas: DataTypes.INTEGER,
     },
     {
       sequelize,

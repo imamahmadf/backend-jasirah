@@ -20,13 +20,7 @@ module.exports = {
 
   async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn("pegawais", "alamat");
-  },
-
-  async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn("pegawais", "tempatLahir");
-  },
-
-  async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn("pegawais", "tanggalLahir");
   },
 };

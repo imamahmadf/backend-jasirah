@@ -40,6 +40,9 @@ const payrollControllers = require("./PayrollControllers");
 const mutasiPersediaanControllers = require("./mutasiPersediaanControllers");
 const presensiControllers = require("./presensiControllers");
 const pengeluaranControllers = require("./pengeluaranControllers");
+const mitraControllers = require("./mitraControllers");
+const pengirimanControllers = require("./pengirimanControllers");
+const tankiControllers = require("./tankiControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -83,4 +86,7 @@ module.exports = {
   mutasiPersediaanControllers,
   presensiControllers,
   pengeluaranControllers,
+  mitraControllers,
+  pengirimanControllers,
+  tankiControllers,
 };
