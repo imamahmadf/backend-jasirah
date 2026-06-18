@@ -109,6 +109,9 @@ function buildSuratJalanRenderData(record) {
     namaSupir: record.supir?.nama || "-",
     teleponSupir: record.supir?.nik || "-",
     tujuan: record.daftarUnitKerja?.unitKerja || "-",
+    jamDatang: record?.jamDatang || "-",
+    jamPergi: record?.jamPergi || "-",
+    jenisTransportir: record?.jenisTransportir?.jenis || "-",
   };
 }
 

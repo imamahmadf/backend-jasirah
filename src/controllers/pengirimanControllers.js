@@ -6,7 +6,8 @@ const {
   daftarUnitKerja,
   statusSuratJalan,
   konfirmasiPenerimaan,
-  nomorSuratJalan,
+  nomorSuratKPBPN,
+  jenisTransportir,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -14,6 +15,15 @@ const fs = require("fs");
 const path = require("path");
 const { buildSuratJalanDocxFromRecord } = require("../utils/suratJalanDocx");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
+
+const toTimeString = (time) => {
+  if (!time) return null;
+  const value = String(time).trim();
+  if (/^\d{2}:\d{2}$/.test(value)) return `${value}:00`;
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) return value;
+  return null;
+};
+
 module.exports = {
   getSuratJalan: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
@@ -110,6 +120,7 @@ module.exports = {
         resultMitra,
         resultTransportir,
         resultStatusSuratJalan,
+        resultTransportir,
       });
     } catch (err) {
       console.log(err);
@@ -147,8 +158,8 @@ module.exports = {
         volume: parseInt(volume, 10),
         // nomor: nomorBaru,
         tanggal: new Date(tanggal),
-        jamDatang: jamDatang ? new Date(jamDatang) : null,
-        jamPergi: jamPergi ? new Date(jamPergi) : null,
+        jamDatang: jamDatang,
+        jamPergi: jamPergi,
         mitraId: parseInt(mitraId, 10),
         transportirId: parseInt(transportirId, 10),
         unitKerjaId: parseInt(unitKerjaId, 10),
@@ -178,7 +189,7 @@ module.exports = {
         where: { id },
         include: [
           { model: mitra },
-          { model: transportir },
+          { model: transportir, include: [{ model: jenisTransportir }] },
           { model: daftarUnitKerja },
           { model: supir },
           { model: statusSuratJalan },
@@ -249,7 +260,7 @@ module.exports = {
       const [dbSurat, dbMitra, dbNoSurat] = await Promise.all([
         suratJalan.findByPk(id),
         mitra.findByPk(mitraId),
-        nomorSuratJalan.findOne({ where: { id: 1 } }),
+        nomorSuratKPBPN.findOne({ where: { id: 1 } }),
       ]);
 
       if (!dbSurat) {
@@ -266,9 +277,9 @@ module.exports = {
         .replace("NOMOR", nomorUrut.toString())
         .replace("BULAN", getRomanMonth(new Date(dbSurat.tanggal)))
         .replace("TAHUN", "2026")
-        .replace("TKODE", kodeMitra);
+        .replace("KODE", kodeMitra);
 
-      await nomorSuratJalan.update(
+      await nomorSuratKPBPN.update(
         { nomorUrut }, // Hanya objek yang berisi field yang ingin diperbarui
         { where: { id: 1 } },
       );
@@ -298,11 +309,9 @@ module.exports = {
   },
 
   addKonfirmasiPenerimaan: async (req, res) => {
-    const { nomor, suratJalanId, tanggal, volume, pegawaiId, catatan } =
-      req.body;
+    const { suratJalanId, tanggal, volume, pegawaiId, catatan } = req.body;
 
     if (
-      !nomor ||
       !suratJalanId ||
       !tanggal ||
       volume === undefined ||
@@ -329,7 +338,6 @@ module.exports = {
       }
 
       const result = await konfirmasiPenerimaan.create({
-        nomor,
         suratJalanId: parseInt(suratJalanId, 10),
         tanggal: new Date(tanggal),
         volume: parseInt(volume, 10),

@@ -9,6 +9,7 @@ const {
   konfirmasiPenerimaan,
   daftarUnitKerja,
   BAPenerimaan,
+  nomorSuratKPBPN,
   sequelize,
 } = require("../models");
 
@@ -17,7 +18,7 @@ const PizZip = require("pizzip");
 const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
-const { formatTanggal } = require("../lib/perjalananHelpers");
+const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
 
 module.exports = {
   getAllPengisianTanki: async (req, res) => {
@@ -30,7 +31,10 @@ module.exports = {
         where: whereCondition,
         limit,
         offset,
-        order: [["tanggal", "DESC"], ["createdAt", "DESC"]],
+        order: [
+          ["tanggal", "DESC"],
+          ["createdAt", "DESC"],
+        ],
         include: [
           { model: tanki },
           { model: BAPenerimaan },
@@ -181,7 +185,9 @@ module.exports = {
     const { tanggal, ids } = req.body;
 
     if (!tanggal) {
-      return res.status(400).json({ message: "Tanggal BA Penerimaan wajib diisi" });
+      return res
+        .status(400)
+        .json({ message: "Tanggal BA Penerimaan wajib diisi" });
     }
 
     if (!ids?.length) {
@@ -191,11 +197,24 @@ module.exports = {
     }
 
     const transaction = await sequelize.transaction();
+    let committed = false;
 
     try {
       const pengisianIds = ids.map((id) => parseInt(id, 10));
       const pengisianList = await pengisianTanki.findAll({
         where: { id: { [Op.in]: pengisianIds } },
+        include: [
+          { model: tanki },
+          {
+            model: konfirmasiPenerimaan,
+            include: [
+              {
+                model: suratJalan,
+                include: [{ model: transportir }, { model: supir }],
+              },
+            ],
+          },
+        ],
         transaction,
       });
 
@@ -205,7 +224,9 @@ module.exports = {
 
       const sudahAdaBA = pengisianList.filter((item) => item.BAPenerimaanId);
       if (sudahAdaBA.length) {
-        throw new Error("Beberapa pengisian tanki sudah memiliki BA Penerimaan");
+        throw new Error(
+          "Beberapa pengisian tanki sudah memiliki BA Penerimaan",
+        );
       }
 
       const resultBA = await BAPenerimaan.create({ tanggal }, { transaction });
@@ -219,13 +240,89 @@ module.exports = {
       );
 
       await transaction.commit();
-      return res.status(200).json({
-        message: "BA Penerimaan berhasil dibuat",
-        result: resultBA,
+      committed = true;
+
+      const tanggalObj = new Date(tanggal);
+      const data = [];
+
+      for (const pengisian of pengisianList) {
+        const konfirmasiList = pengisian.konfirmasiPenerimaans || [];
+
+        if (!konfirmasiList.length) {
+          data.push({
+            nopol: "-",
+            driver: "-",
+            noTanki: pengisian.tanki?.kode || "-",
+          });
+          continue;
+        }
+
+        for (const kp of konfirmasiList) {
+          data.push({
+            nopol: kp.suratJalan?.transportir?.plat || "-",
+            driver: kp.suratJalan?.supir?.nama || "-",
+            noTanki: pengisian.tanki?.kode || "-",
+          });
+        }
+      }
+
+      const templatePath = path.join(
+        __dirname,
+        "../public/BAST/BAPenerimaan-template.docx",
+      );
+
+      if (!fs.existsSync(templatePath)) {
+        throw new Error("Template BA Penerimaan tidak ditemukan");
+      }
+
+      const content = fs.readFileSync(templatePath, "binary");
+      const zip = new PizZip(content);
+
+      const doc = new Docxtemplater(zip, {
+        paragraphLoop: true,
+        linebreaks: true,
       });
+
+      doc.render({
+        hari: tanggalObj.toLocaleDateString("id-ID", { weekday: "long" }),
+        tanggal: formatTanggal(tanggal),
+        jam: tanggalObj.toLocaleTimeString("id-ID", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        data,
+      });
+
+      const buffer = doc.getZip().generate({ type: "nodebuffer" });
+      const outputFileName = `BA_Penerimaan_${Date.now()}.docx`;
+      const outputPath = path.join(
+        __dirname,
+        "../public/output",
+        outputFileName,
+      );
+
+      if (!fs.existsSync(path.dirname(outputPath))) {
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      }
+
+      fs.writeFileSync(outputPath, buffer);
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=${outputFileName}`,
+      );
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      );
+
+      res.send(buffer);
+      fs.unlinkSync(outputPath);
     } catch (err) {
-      await transaction.rollback();
-      console.log(err);
+      if (!committed) {
+        await transaction.rollback();
+      }
+      console.error("Error membuat BA Penerimaan:", err);
       return res.status(500).json({
         message: err.message || "Gagal membuat BA Penerimaan",
       });
@@ -237,7 +334,9 @@ module.exports = {
       const { id } = req.body;
 
       if (!id) {
-        return res.status(400).json({ message: "ID pengisian tanki wajib diisi" });
+        return res
+          .status(400)
+          .json({ message: "ID pengisian tanki wajib diisi" });
       }
 
       const dataPengisian = await pengisianTanki.findOne({
@@ -268,6 +367,49 @@ module.exports = {
       }
 
       const konfirmasiList = dataPengisian.konfirmasiPenerimaans || [];
+      let nomorBAST = dataPengisian.nomorSurat;
+
+      if (!nomorBAST) {
+        const kpPertama = konfirmasiList[0];
+        const mitraData = kpPertama?.suratJalan?.mitra;
+
+        if (!mitraData) {
+          return res.status(400).json({
+            message: "Data mitra tidak ditemukan untuk generate nomor BAST",
+          });
+        }
+
+        const dbNoBAST = await nomorSuratKPBPN.findOne({ where: { id: 2 } });
+
+        if (!dbNoBAST) {
+          return res.status(500).json({
+            message: "Template nomor surat BAST tidak ditemukan",
+          });
+        }
+
+        const tanggalNomor =
+          dataPengisian.tanggal ||
+          kpPertama?.tanggal ||
+          kpPertama?.suratJalan?.tanggal ||
+          dataPengisian.createdAt ||
+          new Date();
+
+        const kodeMitra = mitraData.kode;
+        const nomorUrut = parseInt(mitraData.nomorUrut, 10) + 1;
+
+        nomorBAST = dbNoBAST.nomor
+          .replace("NOMOR", nomorUrut.toString())
+          .replace("BULAN", getRomanMonth(new Date(tanggalNomor)))
+          .replace("TAHUN", "2026")
+          .replace("KODE", kodeMitra);
+
+        await mitra.update({ nomorUrut }, { where: { id: mitraData.id } });
+
+        await pengisianTanki.update(
+          { nomorSurat: nomorBAST },
+          { where: { id: parseInt(id, 10) } },
+        );
+      }
       const grossNum = parseInt(dataPengisian.gross, 10) || 0;
       const netNum = parseInt(dataPengisian.net, 10) || 0;
       const tanggalSumber =
@@ -277,20 +419,13 @@ module.exports = {
       const data = konfirmasiList.map((kp, index) => ({
         no: index + 1,
         noPol: kp.suratJalan?.transportir?.plat || "-",
-        nama:
-          kp.suratJalan?.supir?.nama ||
-          kp.suratJalan?.mitra?.nama ||
-          "-",
+        nama: kp.suratJalan?.supir?.nama || kp.suratJalan?.mitra?.nama || "-",
         kapasitas:
           kp.suratJalan?.transportir?.kapasitas ??
           kp.volume ??
           kp.suratJalan?.volume ??
           "-",
       }));
-
-      const nomorList = konfirmasiList
-        .map((kp) => kp.nomor)
-        .filter(Boolean);
 
       const templatePath = path.join(
         __dirname,
@@ -310,10 +445,7 @@ module.exports = {
       });
 
       doc.render({
-        nomor:
-          nomorList.length > 0
-            ? nomorList.join(", ")
-            : `BAST-${dataPengisian.id}`,
+        nomor: nomorBAST,
         tanggal: formatTanggal(tanggalSumber),
         jam: tanggalObj.toLocaleTimeString("id-ID", {
           hour: "2-digit",

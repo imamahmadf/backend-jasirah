@@ -13,6 +13,7 @@ module.exports = (sequelize, DataTypes) => {
       });
       this.belongsTo(models.tanki, { foreignKey: "tangkiId" });
       this.belongsTo(models.BAPenerimaan, { foreignKey: "BAPenerimaanId" });
+      this.belongsTo(models.satuanVolume, { foreignKey: "satuanVolumeId" });
     }
   }
   pengisianTanki.init(
@@ -29,6 +30,8 @@ module.exports = (sequelize, DataTypes) => {
       saksi: DataTypes.STRING,
       BAPenerimaanId: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
+      nomorSurat: DataTypes.STRING,
+      satuanVolumeId: DataTypes.INTEGER,
     },
     {
       sequelize,

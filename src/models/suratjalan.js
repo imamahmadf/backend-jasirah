@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "statusSuratJalanId",
       });
       this.hasMany(models.konfirmasiPenerimaan, { foreignKey: "suratJalanId" });
+      this.belongsTo(models.satuanVolume, { foreignKey: "satuanVolumeId" });
     }
   }
   suratJalan.init(
@@ -28,9 +29,10 @@ module.exports = (sequelize, DataTypes) => {
       volume: DataTypes.INTEGER,
       supirId: DataTypes.INTEGER,
       statusSuratJalanId: DataTypes.INTEGER,
-      jamDatang: DataTypes.TIME,
-      jamPergi: DataTypes.TIME,
+      jamDatang: DataTypes.DATE,
+      jamPergi: DataTypes.DATE,
       verifikasi: DataTypes.STRING,
+      satuanVolumeId: DataTypes.INTEGER,
     },
     {
       sequelize,
