@@ -11,7 +11,9 @@ routers.get(
 );
 routers.post("/post", tankiControllers.postPengisianTanki);
 routers.post("/post/ba-penerimaan", tankiControllers.postBAPenerimaan);
+routers.post("/cetak/ba-penerimaan", tankiControllers.cetakBAPenerimaan);
 routers.post("/cetak/bast", tankiControllers.cetakBAST);
+routers.get("/get/tanki-monitoring", tankiControllers.getTankiMonitoring);
 routers.post(
   "/post/tanki",
   fileUploader({

@@ -33,11 +33,29 @@ const BULAN = [
   "Desember",
 ];
 
+const HARI = [
+  "minggu",
+  "senin",
+  "selasa",
+  "rabu",
+  "kamis",
+  "jumat",
+  "sabtu",
+];
+
 function formatTanggalIndonesia(date) {
   if (!date) return "-";
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return "-";
   return `${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function formatTanggalJamIndonesia(date) {
+  if (!date) return "-";
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "-";
+  const menit = String(d.getMinutes()).padStart(2, "0");
+  return `${HARI[d.getDay()]} ${d.getDate()} ${BULAN[d.getMonth()].toLowerCase()} ${d.getFullYear()} pukul ${d.getHours()}:${menit}`;
 }
 
 function base64DataURLToArrayBuffer(dataURL) {
@@ -109,8 +127,8 @@ function buildSuratJalanRenderData(record) {
     namaSupir: record.supir?.nama || "-",
     teleponSupir: record.supir?.nik || "-",
     tujuan: record.daftarUnitKerja?.unitKerja || "-",
-    jamDatang: record?.jamDatang || "-",
-    jamPergi: record?.jamPergi || "-",
+    jamDatang: formatTanggalJamIndonesia(record?.jamDatang),
+    jamPergi: formatTanggalJamIndonesia(record?.jamPergi),
     jenisTransportir: record?.jenisTransportir?.jenis || "-",
   };
 }
@@ -157,4 +175,5 @@ module.exports = {
   buildSuratJalanDocxFromRecord,
   buildSuratJalanRenderData,
   formatTanggalIndonesia,
+  formatTanggalJamIndonesia,
 };

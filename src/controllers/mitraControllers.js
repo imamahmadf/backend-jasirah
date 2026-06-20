@@ -5,6 +5,7 @@ const {
   daftarUnitKerja,
   pegawai,
   jenisTransportir,
+  satuanVolume,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -14,12 +15,16 @@ module.exports = {
     try {
       const resultMitra = await mitra.findAll({ include: [{ model: supir }] });
       const resultTransportir = await transportir.findAll({
-        include: [{ model: jenisTransportir }],
+        include: [{ model: jenisTransportir }, { model: satuanVolume }],
       });
       const resultJenisTransportir = await jenisTransportir.findAll({});
-      return res
-        .status(200)
-        .json({ resultMitra, resultTransportir, resultJenisTransportir });
+      const resultSatuanVolume = await satuanVolume.findAll({});
+      return res.status(200).json({
+        resultMitra,
+        resultTransportir,
+        resultJenisTransportir,
+        resultSatuanVolume,
+      });
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
@@ -48,7 +53,7 @@ module.exports = {
 
   addTransportir: async (req, res) => {
     try {
-      const { plat, kapasitas, jenisTransportirId } = req.body;
+      const { plat, kapasitas, jenisTransportirId, satuanVolumeId } = req.body;
       const filePath = "transportir";
       let foto = null;
       if (req.file) {
@@ -60,6 +65,7 @@ module.exports = {
         plat,
         foto,
         jenisTransportirId,
+        satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId) : null,
         kapasitas: parseInt(kapasitas),
       });
 

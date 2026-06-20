@@ -11,6 +11,7 @@ routers.get(
   presensiControllers.getKalenderPresensiMingguan,
 );
 routers.post("/post", presensiControllers.postPresensiMingguan);
+routers.post("/hapus/:id", presensiControllers.hapusPresensi);
 routers.post("/get/status", presensiControllers.getStatusPresensi);
 routers.get(
   "/get/rekap-mingguan",

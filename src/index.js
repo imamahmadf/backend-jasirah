@@ -1,11 +1,10 @@
-require("dotenv/config");
+require("./config");
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const socketIo = require("socket.io");
 const { join, dirname } = require("path");
 
-const { env } = require("./config");
 const {
   perjalananRouter,
   pegawaiRouter,
@@ -35,15 +34,15 @@ const {
   naikJenjangRouter,
   kwitGlobalRouter,
   verifikasiRouter,
-  perencanaanRouter,
-  capaianRouter,
+  // perencanaanRouter,
+  // capaianRouter,
   kendaraanDinasRouter,
   barjasRouter,
-  PJPLRouter,
-  atasanPJPLRouter,
-  perencanaanAdminRouter,
-  satuanIndikatorRouter,
-  indikatorRouter,
+  // PJPLRouter,
+  // atasanPJPLRouter,
+  // perencanaanAdminRouter,
+  // satuanIndikatorRouter,
+  // indikatorRouter,
   templateBPDRouter,
   payrollRouter,
   mutasiPersediaanRouter,
@@ -52,6 +51,7 @@ const {
   mitraRouter,
   pengirimanRouter,
   tankiRouter,
+  userKPBPNRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -60,15 +60,33 @@ const app = express();
 // BUAT HTTP SERVER UNTUK SOCKET.IO
 const server = http.createServer(app);
 
-// KONFIGURASI CORS UNTUK SOCKET.IO
+// KONFIGURASI CORS
 const allowedOrigins = process.env.WHITELISTED_DOMAIN
   ? process.env.WHITELISTED_DOMAIN.split(",").map((origin) => origin.trim())
-  : "*";
+  : [];
+
+const corsOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true);
+  if (allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
+    return callback(null, true);
+  }
+  if (allowedOrigins.includes(origin)) {
+    return callback(null, true);
+  }
+  // Izinkan port localhost lain saat development (Vite bisa pakai port berbeda)
+  if (
+    process.env.NODE_ENV !== "production" &&
+    /^http:\/\/localhost:\d+$/.test(origin)
+  ) {
+    return callback(null, true);
+  }
+  callback(new Error(`Origin ${origin} not allowed by CORS`));
+};
 
 // INISIALISASI SOCKET.IO DENGAN KONFIGURASI PRODUCTION
 const io = socketIo(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: allowedOrigins.length > 0 ? allowedOrigins : "*",
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -110,9 +128,10 @@ io.on("connection", (socket) => {
 // MIDDLEWARE
 app.use(
   cors({
-    origin: process.env.WHITELISTED_DOMAIN
-      ? process.env.WHITELISTED_DOMAIN.split(",")
-      : "*",
+    origin: corsOrigin,
+    credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
@@ -149,15 +168,15 @@ app.use("/api/bangunan", bangunanRouter);
 app.use("/api/naik-jenjang", naikJenjangRouter);
 app.use("/api/kwitansi-global", kwitGlobalRouter);
 app.use("/api/verifikasi", verifikasiRouter);
-app.use("/api/perencanaan", perencanaanRouter);
-app.use("/api/capaian", capaianRouter);
+// app.use("/api/perencanaan", perencanaanRouter);
+// app.use("/api/capaian", capaianRouter);
 app.use("/api/kendaraan-dinas", kendaraanDinasRouter);
 app.use("/api/barjas", barjasRouter);
-app.use("/api/PJPL", PJPLRouter);
-app.use("/api/atasan-PJPL", atasanPJPLRouter);
-app.use("/api/admin-perencanaan", perencanaanAdminRouter);
-app.use("/api/satuan-indikator", satuanIndikatorRouter);
-app.use("/api/indikator", indikatorRouter);
+// app.use("/api/PJPL", PJPLRouter);
+// app.use("/api/atasan-PJPL", atasanPJPLRouter);
+// app.use("/api/admin-perencanaan", perencanaanAdminRouter);
+// app.use("/api/satuan-indikator", satuanIndikatorRouter);
+// app.use("/api/indikator", indikatorRouter);
 app.use("/api/templateBPD", templateBPDRouter);
 app.use("/api/payroll", payrollRouter);
 app.use("/api/mutasi-persediaan", mutasiPersediaanRouter);
@@ -166,6 +185,7 @@ app.use("/api/pengeluaran", pengeluaranRouter);
 app.use("/api/mitra", mitraRouter);
 app.use("/api/pengiriman", pengirimanRouter);
 app.use("/api/tanki", tankiRouter);
+app.use("/api/user-kpbpn", userKPBPNRouter);
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);
 });

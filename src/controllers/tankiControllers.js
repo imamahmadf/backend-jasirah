@@ -10,6 +10,7 @@ const {
   daftarUnitKerja,
   BAPenerimaan,
   nomorSuratKPBPN,
+  satuanVolume,
   sequelize,
 } = require("../models");
 
@@ -19,6 +20,153 @@ const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
 const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
+
+const pengisianIncludeForBA = [
+  { model: tanki },
+  {
+    model: konfirmasiPenerimaan,
+    include: [
+      {
+        model: suratJalan,
+        include: [{ model: transportir }, { model: supir }],
+      },
+    ],
+  },
+];
+
+const parseUkuranBA = (ukuranCairan, ukuranAir) => {
+  const parsedUkuranCairan =
+    ukuranCairan !== null && ukuranCairan !== undefined && ukuranCairan !== ""
+      ? parseInt(ukuranCairan, 10)
+      : null;
+  const parsedUkuranAir =
+    ukuranAir !== null && ukuranAir !== undefined && ukuranAir !== ""
+      ? parseInt(ukuranAir, 10)
+      : null;
+  const uMin =
+    parsedUkuranCairan !== null &&
+    parsedUkuranAir !== null &&
+    !Number.isNaN(parsedUkuranCairan) &&
+    !Number.isNaN(parsedUkuranAir)
+      ? parsedUkuranCairan - parsedUkuranAir
+      : null;
+
+  return { parsedUkuranCairan, parsedUkuranAir, uMin };
+};
+
+const buildUkuranDoc = ({ parsedUkuranCairan, parsedUkuranAir, uMin }) => ({
+  uCair: parsedUkuranCairan ?? "-",
+  uAir: parsedUkuranAir ?? "-",
+  uMin: uMin ?? "-",
+});
+
+const buildFactorDocFields = (ukuranDoc, factorTank) => {
+  const factor =
+    factorTank !== null && factorTank !== undefined && factorTank !== ""
+      ? parseInt(factorTank, 10)
+      : null;
+  const uCairNum = typeof ukuranDoc.uCair === "number" ? ukuranDoc.uCair : null;
+  const uAirNum = typeof ukuranDoc.uAir === "number" ? ukuranDoc.uAir : null;
+  const uMinNum = typeof ukuranDoc.uMin === "number" ? ukuranDoc.uMin : null;
+
+  return {
+    ...ukuranDoc,
+    factor: factor ?? "-",
+    vCair:
+      factor !== null && !Number.isNaN(factor) && uCairNum !== null
+        ? factor * uCairNum
+        : "-",
+    vAir:
+      factor !== null && !Number.isNaN(factor) && uAirNum !== null
+        ? factor * uAirNum
+        : "-",
+    vMin:
+      factor !== null && !Number.isNaN(factor) && uMinNum !== null
+        ? factor * uMinNum
+        : "-",
+  };
+};
+
+const buildBAPenerimaanRows = (pengisianList, ukuranDoc) => {
+  const data = [];
+
+  for (const pengisian of pengisianList) {
+    const konfirmasiList = pengisian.konfirmasiPenerimaans || [];
+    const docFields = buildFactorDocFields(
+      ukuranDoc,
+      pengisian.tanki?.factorTank,
+    );
+
+    if (!konfirmasiList.length) {
+      data.push({
+        nopol: "-",
+        driver: "-",
+        noTanki: pengisian.tanki?.kode || "-",
+        ...docFields,
+      });
+      continue;
+    }
+
+    for (const kp of konfirmasiList) {
+      data.push({
+        nopol: kp.suratJalan?.transportir?.plat || "-",
+        driver: kp.suratJalan?.supir?.nama || "-",
+        noTanki: pengisian.tanki?.kode || "-",
+        ...docFields,
+      });
+    }
+  }
+
+  return data;
+};
+
+const generateBAPenerimaanBuffer = (tanggal, data) => {
+  const templatePath = path.join(
+    __dirname,
+    "../public/BAST/BAPenerimaan-template.docx",
+  );
+
+  if (!fs.existsSync(templatePath)) {
+    throw new Error("Template BA Penerimaan tidak ditemukan");
+  }
+
+  const tanggalObj = new Date(tanggal);
+  const content = fs.readFileSync(templatePath, "binary");
+  const zip = new PizZip(content);
+  const doc = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+  });
+
+  doc.render({
+    hari: tanggalObj.toLocaleDateString("id-ID", { weekday: "long" }),
+    tanggal: formatTanggal(tanggal),
+    jam: tanggalObj.toLocaleTimeString("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    data,
+  });
+
+  return doc.getZip().generate({ type: "nodebuffer" });
+};
+
+const sendDocxDownload = (res, buffer, fileName) => {
+  const outputPath = path.join(__dirname, "../public/output", fileName);
+
+  if (!fs.existsSync(path.dirname(outputPath))) {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  }
+
+  fs.writeFileSync(outputPath, buffer);
+  res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  );
+  res.send(buffer);
+  fs.unlinkSync(outputPath);
+};
 
 module.exports = {
   getAllPengisianTanki: async (req, res) => {
@@ -38,6 +186,7 @@ module.exports = {
         include: [
           { model: tanki },
           { model: BAPenerimaan },
+          { model: satuanVolume },
           {
             model: konfirmasiPenerimaan,
             include: [
@@ -47,6 +196,7 @@ module.exports = {
                   { model: mitra },
                   { model: supir },
                   { model: transportir },
+                  { model: satuanVolume },
                 ],
               },
               { model: pegawai },
@@ -81,6 +231,7 @@ module.exports = {
       BSW,
       catatan,
       saksi,
+      satuanVolumeId,
       ids,
     } = req.body;
     const transaction = await sequelize.transaction();
@@ -98,6 +249,7 @@ module.exports = {
           BSW,
           catatan,
           saksi,
+          satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
         },
         { transaction },
       );
@@ -131,7 +283,10 @@ module.exports = {
         order: [["kode", "ASC"]],
         include: [{ model: daftarUnitKerja }],
       });
-      return res.status(200).json({ result });
+      const resultSatuanVolume = await satuanVolume.findAll({
+        order: [["id", "ASC"]],
+      });
+      return res.status(200).json({ result, resultSatuanVolume });
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -145,7 +300,11 @@ module.exports = {
         include: [
           {
             model: suratJalan,
-            include: [{ model: mitra }, { model: transportir }],
+            include: [
+              { model: mitra },
+              { model: transportir },
+              { model: satuanVolume },
+            ],
           },
           { model: pegawai },
         ],
@@ -182,7 +341,7 @@ module.exports = {
   },
 
   postBAPenerimaan: async (req, res) => {
-    const { tanggal, ids } = req.body;
+    const { tanggal, ukuranCairan, ukuranAir, ids } = req.body;
 
     if (!tanggal) {
       return res
@@ -203,18 +362,7 @@ module.exports = {
       const pengisianIds = ids.map((id) => parseInt(id, 10));
       const pengisianList = await pengisianTanki.findAll({
         where: { id: { [Op.in]: pengisianIds } },
-        include: [
-          { model: tanki },
-          {
-            model: konfirmasiPenerimaan,
-            include: [
-              {
-                model: suratJalan,
-                include: [{ model: transportir }, { model: supir }],
-              },
-            ],
-          },
-        ],
+        include: pengisianIncludeForBA,
         transaction,
       });
 
@@ -229,7 +377,16 @@ module.exports = {
         );
       }
 
-      const resultBA = await BAPenerimaan.create({ tanggal }, { transaction });
+      const ukuran = parseUkuranBA(ukuranCairan, ukuranAir);
+
+      const resultBA = await BAPenerimaan.create(
+        {
+          tanggal,
+          ukuranCairan: ukuran.parsedUkuranCairan,
+          ukuranAir: ukuran.parsedUkuranAir,
+        },
+        { transaction },
+      );
 
       await pengisianTanki.update(
         { BAPenerimaanId: resultBA.id },
@@ -242,82 +399,12 @@ module.exports = {
       await transaction.commit();
       committed = true;
 
-      const tanggalObj = new Date(tanggal);
-      const data = [];
-
-      for (const pengisian of pengisianList) {
-        const konfirmasiList = pengisian.konfirmasiPenerimaans || [];
-
-        if (!konfirmasiList.length) {
-          data.push({
-            nopol: "-",
-            driver: "-",
-            noTanki: pengisian.tanki?.kode || "-",
-          });
-          continue;
-        }
-
-        for (const kp of konfirmasiList) {
-          data.push({
-            nopol: kp.suratJalan?.transportir?.plat || "-",
-            driver: kp.suratJalan?.supir?.nama || "-",
-            noTanki: pengisian.tanki?.kode || "-",
-          });
-        }
-      }
-
-      const templatePath = path.join(
-        __dirname,
-        "../public/BAST/BAPenerimaan-template.docx",
-      );
-
-      if (!fs.existsSync(templatePath)) {
-        throw new Error("Template BA Penerimaan tidak ditemukan");
-      }
-
-      const content = fs.readFileSync(templatePath, "binary");
-      const zip = new PizZip(content);
-
-      const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-      });
-
-      doc.render({
-        hari: tanggalObj.toLocaleDateString("id-ID", { weekday: "long" }),
-        tanggal: formatTanggal(tanggal),
-        jam: tanggalObj.toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        data,
-      });
-
-      const buffer = doc.getZip().generate({ type: "nodebuffer" });
+      const ukuranDoc = buildUkuranDoc(ukuran);
+      const data = buildBAPenerimaanRows(pengisianList, ukuranDoc);
+      const buffer = generateBAPenerimaanBuffer(tanggal, data);
       const outputFileName = `BA_Penerimaan_${Date.now()}.docx`;
-      const outputPath = path.join(
-        __dirname,
-        "../public/output",
-        outputFileName,
-      );
 
-      if (!fs.existsSync(path.dirname(outputPath))) {
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      }
-
-      fs.writeFileSync(outputPath, buffer);
-
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=${outputFileName}`,
-      );
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      );
-
-      res.send(buffer);
-      fs.unlinkSync(outputPath);
+      sendDocxDownload(res, buffer, outputFileName);
     } catch (err) {
       if (!committed) {
         await transaction.rollback();
@@ -325,6 +412,53 @@ module.exports = {
       console.error("Error membuat BA Penerimaan:", err);
       return res.status(500).json({
         message: err.message || "Gagal membuat BA Penerimaan",
+      });
+    }
+  },
+
+  cetakBAPenerimaan: async (req, res) => {
+    try {
+      const { BAPenerimaanId } = req.body;
+
+      if (!BAPenerimaanId) {
+        return res
+          .status(400)
+          .json({ message: "ID BA Penerimaan wajib diisi" });
+      }
+
+      const baId = parseInt(BAPenerimaanId, 10);
+      const dataBA = await BAPenerimaan.findByPk(baId);
+
+      if (!dataBA) {
+        return res
+          .status(404)
+          .json({ message: "BA Penerimaan tidak ditemukan" });
+      }
+
+      const pengisianList = await pengisianTanki.findAll({
+        where: { BAPenerimaanId: baId },
+        include: pengisianIncludeForBA,
+        order: [["id", "ASC"]],
+      });
+
+      if (!pengisianList.length) {
+        return res.status(404).json({
+          message: "Data pengisian tanki untuk BA Penerimaan tidak ditemukan",
+        });
+      }
+
+      const ukuranDoc = buildUkuranDoc(
+        parseUkuranBA(dataBA.ukuranCairan, dataBA.ukuranAir),
+      );
+      const data = buildBAPenerimaanRows(pengisianList, ukuranDoc);
+      const buffer = generateBAPenerimaanBuffer(dataBA.tanggal, data);
+      const outputFileName = `BA_Penerimaan_${baId}_${Date.now()}.docx`;
+
+      sendDocxDownload(res, buffer, outputFileName);
+    } catch (err) {
+      console.error("Error cetak ulang BA Penerimaan:", err);
+      return res.status(500).json({
+        message: err.message || "Gagal mencetak ulang BA Penerimaan",
       });
     }
   },
@@ -494,6 +628,29 @@ module.exports = {
         message: err.message || err.toString(),
         code: 500,
       });
+    }
+  },
+  getTankiMonitoring: async (req, res) => {
+    try {
+      const result = await tanki.findAll({
+        include: [
+          {
+            model: daftarUnitKerja,
+          },
+          {
+            model: pengisianTanki,
+            where: {
+              BAPenerimaanId: null,
+            },
+            required: true,
+          },
+        ],
+      });
+
+      return res.status(200).json({ result });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
     }
   },
 };

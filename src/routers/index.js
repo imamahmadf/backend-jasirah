@@ -26,15 +26,15 @@ const bangunanRouter = require("./bangunanRouter");
 const naikJenjangRouter = require("./naikJenjangRouter");
 const kwitGlobalRouter = require("./kwitGlobalRouter");
 const verifikasiRouter = require("./verifikasiRouter");
-const perencanaanRouter = require("./perencanaanRouter");
-const capaianRouter = require("./capaianRouter");
+// const perencanaanRouter = require("./perencanaanRouter");
+// const capaianRouter = require("./capaianRouter");
 const kendaraanDinasRouter = require("./kendaraanDinasRouter");
 const barjasRouter = require("./barjasRouter");
-const PJPLRouter = require("./PJPLRouter");
-const atasanPJPLRouter = require("./atasanPJPLRouter");
-const perencanaanAdminRouter = require("./perencanaanAdminRouter");
-const satuanIndikatorRouter = require("./satuanIndikatorRouter");
-const indikatorRouter = require("./indikatorRouter");
+// const PJPLRouter = require("./PJPLRouter");
+// const atasanPJPLRouter = require("./atasanPJPLRouter");
+// const perencanaanAdminRouter = require("./perencanaanAdminRouter");
+// const satuanIndikatorRouter = require("./satuanIndikatorRouter");
+// const indikatorRouter = require("./indikatorRouter");
 const templateBPDRouter = require("./templateBPDRouter");
 const payrollRouter = require("./payrollRouter");
 const mutasiPersediaanRouter = require("./mutasiPersediaanRouter");
@@ -43,6 +43,7 @@ const pengeluaranRouter = require("./pengeluaranRouter");
 const mitraRouter = require("./mitraRouter");
 const pengirimanRouter = require("./pengirimanRouter");
 const tankiRouter = require("./tankiRouter");
+const userKPBPNRouter = require("./userKPBPNRouter");
 
 module.exports = {
   perjalananRouter,
@@ -73,15 +74,15 @@ module.exports = {
   naikJenjangRouter,
   kwitGlobalRouter,
   verifikasiRouter,
-  perencanaanRouter,
-  capaianRouter,
+  // perencanaanRouter,
+  // capaianRouter,
   kendaraanDinasRouter,
   barjasRouter,
-  PJPLRouter,
-  atasanPJPLRouter,
-  perencanaanAdminRouter,
-  satuanIndikatorRouter,
-  indikatorRouter,
+  // PJPLRouter,
+  // atasanPJPLRouter,
+  // perencanaanAdminRouter,
+  // satuanIndikatorRouter,
+  // indikatorRouter,
   templateBPDRouter,
   payrollRouter,
   mutasiPersediaanRouter,
@@ -90,4 +91,5 @@ module.exports = {
   mitraRouter,
   pengirimanRouter,
   tankiRouter,
+  userKPBPNRouter,
 };

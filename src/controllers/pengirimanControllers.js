@@ -8,6 +8,7 @@ const {
   konfirmasiPenerimaan,
   nomorSuratKPBPN,
   jenisTransportir,
+  satuanVolume,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -87,6 +88,7 @@ module.exports = {
           { model: daftarUnitKerja },
           { model: supir },
           { model: statusSuratJalan },
+          { model: satuanVolume },
         ],
       });
 
@@ -113,14 +115,17 @@ module.exports = {
       const resultMitra = await mitra.findAll({
         include: [{ model: supir }],
       });
-      const resultTransportir = await transportir.findAll({});
+      const resultTransportir = await transportir.findAll({
+        include: [{ model: satuanVolume }],
+      });
       const resultStatusSuratJalan = await statusSuratJalan.findAll({});
+      const resultSatuanVolume = await satuanVolume.findAll({});
 
       return res.status(200).json({
         resultMitra,
         resultTransportir,
         resultStatusSuratJalan,
-        resultTransportir,
+        resultSatuanVolume,
       });
     } catch (err) {
       console.log(err);
@@ -131,7 +136,7 @@ module.exports = {
   addSuratJalan: async (req, res) => {
     const {
       volume,
-
+      satuanVolumeId,
       tanggal,
       mitraId,
       transportirId,
@@ -148,7 +153,8 @@ module.exports = {
       !unitKerjaId ||
       !supirId ||
       volume === undefined ||
-      volume === ""
+      volume === "" ||
+      !satuanVolumeId
     ) {
       return res.status(400).json({ error: "Semua field wajib diisi" });
     }
@@ -156,6 +162,7 @@ module.exports = {
     try {
       const result = await suratJalan.create({
         volume: parseInt(volume, 10),
+        satuanVolumeId: parseInt(satuanVolumeId, 10),
         // nomor: nomorBaru,
         tanggal: new Date(tanggal),
         jamDatang: jamDatang,
@@ -189,10 +196,14 @@ module.exports = {
         where: { id },
         include: [
           { model: mitra },
-          { model: transportir, include: [{ model: jenisTransportir }] },
+          {
+            model: transportir,
+            include: [{ model: jenisTransportir }, { model: satuanVolume }],
+          },
           { model: daftarUnitKerja },
           { model: supir },
           { model: statusSuratJalan },
+          { model: satuanVolume },
         ],
       });
 

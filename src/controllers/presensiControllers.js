@@ -416,6 +416,44 @@ module.exports = {
     }
   },
 
+  hapusPresensi: async (req, res) => {
+    const id = Number(req.params.id);
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "ID presensi wajib diisi",
+        code: 400,
+      });
+    }
+
+    try {
+      const existing = await presensi.findByPk(id);
+
+      if (!existing) {
+        return res.status(404).json({
+          success: false,
+          message: "Data presensi tidak ditemukan",
+          code: 404,
+        });
+      }
+
+      await existing.destroy();
+
+      return res.status(200).json({
+        success: true,
+        message: "Data presensi berhasil dihapus",
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menghapus data presensi",
+        error: err.toString(),
+      });
+    }
+  },
+
   getRekapPresensiMingguan: async (req, res) => {
     const { tanggalAwal, tanggalAkhir } = req.query;
 

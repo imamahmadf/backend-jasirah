@@ -18,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
       kode: DataTypes.STRING,
       foto: DataTypes.STRING,
       kapasitas: DataTypes.INTEGER,
+      factorTank: DataTypes.INTEGER,
     },
     {
       sequelize,
