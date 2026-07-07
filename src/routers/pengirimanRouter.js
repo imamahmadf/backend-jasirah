@@ -5,6 +5,10 @@ const fileUploader = require("../middleware/uploader");
 const routers = express.Router();
 
 routers.get("/get", pengirimanControllers.getSuratJalan);
+routers.get(
+  "/get/konfirmasi/:suratJalanId",
+  pengirimanControllers.getKonfirmasiBySuratJalan,
+);
 routers.get("/get/seed", pengirimanControllers.getSeed);
 routers.get("/get/cetak/:id", pengirimanControllers.cetakSuratJalan);
 routers.post("/post", pengirimanControllers.addSuratJalan);

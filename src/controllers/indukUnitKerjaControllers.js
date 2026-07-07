@@ -256,13 +256,14 @@ module.exports = {
   },
 
   postUnitKerja: async (req, res) => {
-    const { indukUnitKerjaId, asal, kode, unitKerja } = req.body;
+    const { indukUnitKerjaId, asal, kode, unitKerja, status } = req.body;
     try {
       const result = await daftarUnitKerja.create({
         indukUnitKerjaId,
         asal,
         kode,
         unitKerja,
+        status: status || null,
       });
       return res.status(200).json({ result });
     } catch (err) {
@@ -346,7 +347,7 @@ module.exports = {
           { model: indukUKSumberDana, include: [{ model: sumberDana }] },
           {
             model: daftarUnitKerja,
-            attributes: ["id", "unitKerja", "kode", "asal"],
+            attributes: ["id", "unitKerja", "kode", "asal", "status"],
           },
         ],
         where: { id },
@@ -361,11 +362,16 @@ module.exports = {
   },
   editUnitKerja: async (req, res) => {
     const id = req.params.id;
-    const { unitKerja, kode, asal } = req.body;
+    const { unitKerja, kode, asal, status } = req.body;
     console.log(req.body);
     try {
       const result = await daftarUnitKerja.update(
-        { unitKerja, kode, asal },
+        {
+          unitKerja,
+          kode,
+          asal,
+          status: status === "" || status === undefined ? null : status,
+        },
         { where: { id } },
       );
 

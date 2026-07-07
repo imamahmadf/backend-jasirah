@@ -10,6 +10,9 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       this.hasMany(models.supir, { foreignKey: "mitraId" });
       this.hasMany(models.suratJalan, { foreignKey: "mitraId" });
+      this.hasMany(models.userKPBPN, { foreignKey: "mitraId" });
+      this.hasMany(models.sumurMinyak, { foreignKey: "mitraId" });
+      this.belongsTo(models.jenisMitra, { foreignKey: "jenisMitraId" });
     }
   }
   mitra.init(
@@ -21,6 +24,7 @@ module.exports = (sequelize, DataTypes) => {
       penanggungJawab: DataTypes.STRING,
       kode: DataTypes.STRING,
       nomorUrut: DataTypes.INTEGER,
+      jenisMitraId: DataTypes.INTEGER,
     },
     {
       sequelize,

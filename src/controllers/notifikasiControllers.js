@@ -1,4 +1,58 @@
-const { personil } = require("../models");
+const { personil, suratJalan, mitra } = require("../models");
+
+const emitNotifikasiSuratJalanDraft = async (io) => {
+  try {
+    const countDraft = await suratJalan.count({
+      where: { statusSuratJalanId: 1 },
+    });
+
+    const recentDraft = await suratJalan.findAll({
+      where: { statusSuratJalanId: 1 },
+      limit: 10,
+      order: [["createdAt", "DESC"]],
+      include: [{ model: mitra, attributes: ["id", "nama"] }],
+    });
+
+    const message =
+      countDraft === 0
+        ? "Tidak ada surat jalan draft"
+        : countDraft === 1
+          ? "Ada 1 surat jalan berstatus DRAFT menunggu verifikasi"
+          : `Ada ${countDraft} surat jalan berstatus DRAFT menunggu verifikasi`;
+
+    const notifikasi = recentDraft.map((item) => ({
+      id: item.id,
+      message: `Surat jalan #${item.nomor || item.id} — ${item.mitra?.nama || "Mitra"} (DRAFT)`,
+      tanggal: item.tanggal,
+      mitra: item.mitra?.nama || "-",
+      timestamp: item.createdAt,
+    }));
+
+    const payload = {
+      count: countDraft,
+      message,
+      suratJalanDraft: {
+        count: countDraft,
+        message,
+      },
+      notifikasi,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (io) {
+      console.log(
+        "🚀 Emit notifikasi:kpbpn:terbaru - Surat Jalan DRAFT:",
+        countDraft,
+      );
+      io.emit("notifikasi:kpbpn:terbaru", payload);
+    }
+
+    return payload;
+  } catch (err) {
+    console.error("❌ Error emit notifikasi surat jalan draft:", err);
+    throw err;
+  }
+};
 
 // Helper function untuk emit notifikasi
 // Menghitung jumlah personil dengan statusId == 2 (pengajuan) dan statusId == 4 (ditolak)
@@ -95,6 +149,25 @@ module.exports = {
     }
   },
 
+  getNotifikasiKPBPN: async (req, res) => {
+    try {
+      const io = req.app.get("socketio");
+      const data = await emitNotifikasiSuratJalanDraft(io);
+
+      res.status(200).json({
+        count: data.count,
+        total: data.count,
+        suratJalanDraft: data.suratJalanDraft,
+        notifikasi: data.notifikasi,
+        message: data.message,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   // Export helper function agar bisa digunakan di controller lain
   emitNotifikasiPersonil,
+  emitNotifikasiSuratJalanDraft,
 };

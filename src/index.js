@@ -1,4 +1,9 @@
 require("./config");
+const {
+  initWaClient,
+  getWaStatus,
+  getQrFilePath,
+} = require("./services/waServices");
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -51,7 +56,10 @@ const {
   mitraRouter,
   pengirimanRouter,
   tankiRouter,
+  sumurMinyakRouter,
   userKPBPNRouter,
+  dashboardRouter,
+  templateKPBPNRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -109,14 +117,33 @@ app.set("socketio", io);
 // SIMPAN io secara global untuk bisa diakses dari model hooks (opsional)
 global.socketIO = io;
 
+const {
+  getDashboardData,
+  emitDashboardKPBPN,
+} = require("./services/dashboardKPBPNService");
+
 // LOGIC SOCKET
 io.on("connection", (socket) => {
   console.log("✅ Client connected:", socket.id);
 
-  // Contoh listener event dari client
   socket.on("ping", () => {
     console.log("📡 Ping diterima dari client");
     socket.emit("pong");
+  });
+
+  socket.on("dashboard:subscribe", async () => {
+    socket.join("dashboard:admin");
+    try {
+      const data = await getDashboardData();
+      socket.emit("dashboard:kpbpn:data", data);
+    } catch (err) {
+      console.error("Error dashboard subscribe:", err);
+      socket.emit("dashboard:kpbpn:error", { message: err.message });
+    }
+  });
+
+  socket.on("dashboard:unsubscribe", () => {
+    socket.leave("dashboard:admin");
   });
 
   socket.on("disconnect", () => {
@@ -185,7 +212,10 @@ app.use("/api/pengeluaran", pengeluaranRouter);
 app.use("/api/mitra", mitraRouter);
 app.use("/api/pengiriman", pengirimanRouter);
 app.use("/api/tanki", tankiRouter);
+app.use("/api/sumur-minyak", sumurMinyakRouter);
 app.use("/api/user-kpbpn", userKPBPNRouter);
+app.use("/api/dashboard", dashboardRouter);
+app.use("/api/template-kpbpn", templateKPBPNRouter);
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);
 });
@@ -208,6 +238,26 @@ app.get("/api/socket-config", (req, res) => {
   });
 });
 
+app.get("/api/wa/status", (req, res) => {
+  res.status(200).json(getWaStatus());
+});
+
+app.get("/api/wa/qr", (req, res) => {
+  const qrPath = getQrFilePath();
+  if (!qrPath) {
+    const status = getWaStatus();
+    if (status.ready) {
+      return res.status(200).send("WhatsApp sudah terhubung.");
+    }
+    return res
+      .status(404)
+      .send(
+        "QR belum tersedia. Tunggu beberapa detik lalu refresh halaman ini.",
+      );
+  }
+  return res.sendFile(qrPath);
+});
+
 // ===========================
 // ERROR HANDLING
 
@@ -227,6 +277,10 @@ app.use((err, req, res, next) => {
     next();
   }
 });
+
+// ===========================
+// INISIALISASI WHATSAPP
+initWaClient();
 
 // ===========================
 // MULAIKAN SERVER

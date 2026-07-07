@@ -8,7 +8,9 @@ const {
   konfirmasiPenerimaan,
   nomorSuratKPBPN,
   jenisTransportir,
+  jenisMitra,
   satuanVolume,
+  pegawai,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -16,6 +18,11 @@ const fs = require("fs");
 const path = require("path");
 const { buildSuratJalanDocxFromRecord } = require("../utils/suratJalanDocx");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
+const { sendMessage } = require("../services/waServices");
+const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+const {
+  emitNotifikasiSuratJalanDraft,
+} = require("./notifikasiControllers");
 
 const toTimeString = (time) => {
   if (!time) return null;
@@ -160,23 +167,96 @@ module.exports = {
     }
 
     try {
+      const parsedMitraId = parseInt(mitraId, 10);
+      const parsedTransportirId = parseInt(transportirId, 10);
+      const parsedSupirId = parseInt(supirId, 10);
+      const parsedSatuanVolumeId = parseInt(satuanVolumeId, 10);
+
       const result = await suratJalan.create({
         volume: parseInt(volume, 10),
-        satuanVolumeId: parseInt(satuanVolumeId, 10),
+        satuanVolumeId: parsedSatuanVolumeId,
         // nomor: nomorBaru,
         tanggal: new Date(tanggal),
         jamDatang: jamDatang,
         jamPergi: jamPergi,
-        mitraId: parseInt(mitraId, 10),
-        transportirId: parseInt(transportirId, 10),
+        mitraId: parsedMitraId,
+        transportirId: parsedTransportirId,
         unitKerjaId: parseInt(unitKerjaId, 10),
-        supirId: parseInt(supirId, 10),
+        supirId: parsedSupirId,
         statusSuratJalanId: 1,
       });
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         result,
+      });
+
+      const io = req.app.get("socketio");
+      setImmediate(async () => {
+        try {
+          const [mitraData, transportirData, supirData, satuanData] =
+            await Promise.all([
+              mitra.findByPk(parsedMitraId),
+              transportir.findByPk(parsedTransportirId),
+              supir.findByPk(parsedSupirId),
+              satuanVolume.findByPk(parsedSatuanVolumeId),
+            ]);
+
+          if (mitraData?.kontak) {
+            const tanggalStr = new Date(tanggal).toLocaleDateString("id-ID", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            });
+
+            const message = [
+              "📦 *Notifikasi Surat Jalan*",
+              "",
+              `Yth. ${mitraData.nama},`,
+              "",
+              "Surat jalan baru telah dibuat dengan detail berikut:",
+              "",
+              `• Tanggal: ${tanggalStr}`,
+              `• Volume: ${volume} ${satuanData?.satuan || ""}`,
+              transportirData?.plat
+                ? `• Transportir: ${transportirData.plat}`
+                : null,
+              supirData?.nama ? `• Supir: ${supirData.nama}` : null,
+              jamDatang ? `• Jam Datang: ${jamDatang}` : null,
+              jamPergi ? `• Jam Pergi: ${jamPergi}` : null,
+              "",
+              "Status: DRAFT",
+              "",
+              "_Pesan otomatis dari sistem Jasirah Diza Berjaya_",
+            ]
+              .filter(Boolean)
+              .join("\n");
+
+            const waResult = await sendMessage(mitraData.kontak, message);
+            if (waResult.queued) {
+              console.log(
+                `📋 WA ke mitra ${mitraData.nama} masuk antrian, akan terkirim setelah WhatsApp siap`,
+              );
+            } else if (!waResult.success) {
+              console.warn(
+                `Gagal kirim WA ke mitra ${mitraData.nama}:`,
+                waResult.error,
+              );
+            }
+          }
+
+          await notifyDashboardChange(io, {
+            type: "suratJalan:created",
+            title: "Surat Jalan Baru",
+            description: `Surat jalan untuk ${mitraData?.nama || "mitra"} dibuat (DRAFT)`,
+            entity: "suratJalan",
+            entityId: result.id,
+          });
+          await emitNotifikasiSuratJalanDraft(io);
+        } catch (bgErr) {
+          console.error("Background task addSuratJalan:", bgErr);
+        }
       });
     } catch (err) {
       console.log(err);
@@ -306,6 +386,16 @@ module.exports = {
         },
       );
 
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "suratJalan:verified",
+        title: "Surat Jalan Diverifikasi",
+        description: `Surat jalan ${nomorBaru} berstatus KIRIM`,
+        entity: "suratJalan",
+        entityId: parseInt(id, 10),
+      });
+      await emitNotifikasiSuratJalanDraft(io);
+
       return res.status(200).json({
         message: "Surat jalan berhasil diverifikasi",
         verifikasi: randomCode,
@@ -316,6 +406,36 @@ module.exports = {
       return res.status(500).json({
         error: err.message,
       });
+    }
+  },
+
+  getKonfirmasiBySuratJalan: async (req, res) => {
+    const suratJalanId = parseInt(req.params.suratJalanId, 10);
+
+    if (!suratJalanId) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    try {
+      const result = await konfirmasiPenerimaan.findAll({
+        where: { suratJalanId },
+        include: [
+          { model: pegawai },
+          {
+            model: suratJalan,
+            include: [{ model: mitra }, { model: satuanVolume }],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      });
+
+      return res.status(200).json({
+        success: true,
+        result,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
     }
   },
 
@@ -360,6 +480,15 @@ module.exports = {
         { statusSuratJalanId: 3 },
         { where: { id: parseInt(suratJalanId, 10) } },
       );
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "konfirmasi:created",
+        title: "Konfirmasi Penerimaan",
+        description: `Konfirmasi penerimaan surat jalan #${suratJalanId} disimpan`,
+        entity: "konfirmasiPenerimaan",
+        entityId: result.id,
+      });
 
       return res.status(200).json({
         success: true,

@@ -24,7 +24,7 @@ router.post(
   userKPBPNControllers.changePassword,
 );
 router.post("/update-password/:id", userKPBPNControllers.updatePassword);
-
+router.get("/get/user", userKPBPNControllers.getAllUser);
 // Admin-only routes (harus login DAN role admin)
 // router.get(
 //   "/admin-dashboard",

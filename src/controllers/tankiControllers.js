@@ -10,6 +10,7 @@ const {
   daftarUnitKerja,
   BAPenerimaan,
   nomorSuratKPBPN,
+  jenisMitra,
   satuanVolume,
   sequelize,
 } = require("../models");
@@ -20,6 +21,7 @@ const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
 const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
+const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
 
 const pengisianIncludeForBA = [
   { model: tanki },
@@ -33,6 +35,72 @@ const pengisianIncludeForBA = [
     ],
   },
 ];
+
+const baPenerimaanPengisianInclude = [
+  { model: tanki },
+  { model: satuanVolume },
+  {
+    model: konfirmasiPenerimaan,
+    include: [
+      {
+        model: suratJalan,
+        include: [{ model: mitra }, { model: supir }, { model: transportir }],
+      },
+      { model: pegawai },
+    ],
+  },
+];
+
+const buildBAPenerimaanWhere = async ({ startDate, endDate, tangkiId, baId }) => {
+  const whereCondition = {};
+
+  if (baId) {
+    whereCondition.id = parseInt(baId, 10);
+  }
+
+  if (startDate || endDate) {
+    whereCondition.tanggal = {};
+    if (startDate) {
+      whereCondition.tanggal[Op.gte] = new Date(startDate);
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      whereCondition.tanggal[Op.lte] = end;
+    }
+  }
+
+  if (tangkiId) {
+    const parsedTangkiId = parseInt(tangkiId, 10);
+    const pengisianWithBA = await pengisianTanki.findAll({
+      where: {
+        tangkiId: parsedTangkiId,
+        BAPenerimaanId: { [Op.ne]: null },
+      },
+      attributes: ["BAPenerimaanId"],
+      group: ["BAPenerimaanId"],
+      raw: true,
+    });
+
+    const baIds = pengisianWithBA
+      .map((item) => item.BAPenerimaanId)
+      .filter(Boolean);
+
+    if (!baIds.length) {
+      return { whereCondition: { id: -1 }, emptyResult: true };
+    }
+
+    if (whereCondition.id) {
+      if (!baIds.includes(whereCondition.id)) {
+        return { whereCondition: { id: -1 }, emptyResult: true };
+      }
+    } else {
+      whereCondition.id = { [Op.in]: baIds };
+    }
+  }
+
+  return { whereCondition, emptyResult: false };
+};
 
 const parseUkuranBA = (ukuranCairan, ukuranAir) => {
   const parsedUkuranCairan =
@@ -87,37 +155,49 @@ const buildFactorDocFields = (ukuranDoc, factorTank) => {
   };
 };
 
+const joinUniqueValues = (values) => {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed || trimmed === "-" || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result.length ? result.join(", ") : "-";
+};
+
 const buildBAPenerimaanRows = (pengisianList, ukuranDoc) => {
-  const data = [];
+  const nopolList = [];
+  const driverList = [];
+  const noTankiList = [];
 
   for (const pengisian of pengisianList) {
-    const konfirmasiList = pengisian.konfirmasiPenerimaans || [];
-    const docFields = buildFactorDocFields(
-      ukuranDoc,
-      pengisian.tanki?.factorTank,
-    );
+    const kodeTanki = pengisian.tanki?.kode;
+    if (kodeTanki) noTankiList.push(kodeTanki);
 
-    if (!konfirmasiList.length) {
-      data.push({
-        nopol: "-",
-        driver: "-",
-        noTanki: pengisian.tanki?.kode || "-",
-        ...docFields,
-      });
-      continue;
-    }
-
-    for (const kp of konfirmasiList) {
-      data.push({
-        nopol: kp.suratJalan?.transportir?.plat || "-",
-        driver: kp.suratJalan?.supir?.nama || "-",
-        noTanki: pengisian.tanki?.kode || "-",
-        ...docFields,
-      });
+    for (const kp of pengisian.konfirmasiPenerimaans || []) {
+      const plat = kp.suratJalan?.transportir?.plat;
+      const namaSupir = kp.suratJalan?.supir?.nama;
+      if (plat) nopolList.push(plat);
+      if (namaSupir) driverList.push(namaSupir);
     }
   }
 
-  return data;
+  const factorTank = pengisianList.find((item) => item.tanki?.factorTank != null)
+    ?.tanki?.factorTank;
+  const docFields = buildFactorDocFields(ukuranDoc, factorTank);
+
+  return [
+    {
+      nopol: joinUniqueValues(nopolList),
+      driver: joinUniqueValues(driverList),
+      noTanki: joinUniqueValues(noTankiList),
+      ...docFields,
+    },
+  ];
 };
 
 const generateBAPenerimaanBuffer = (tanggal, data) => {
@@ -169,6 +249,64 @@ const sendDocxDownload = (res, buffer, fileName) => {
 };
 
 module.exports = {
+  getAllBAPenerimaan: async (req, res) => {
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = limit * page;
+    const { startDate, endDate, tangkiId, baId } = req.query;
+
+    try {
+      const { whereCondition, emptyResult } = await buildBAPenerimaanWhere({
+        startDate,
+        endDate,
+        tangkiId,
+        baId,
+      });
+
+      if (emptyResult) {
+        return res.status(200).json({
+          success: true,
+          result: [],
+          page,
+          limit,
+          totalRows: 0,
+          totalPage: 0,
+        });
+      }
+
+      const result = await BAPenerimaan.findAll({
+        where: whereCondition,
+        limit,
+        offset,
+        order: [
+          ["tanggal", "DESC"],
+          ["createdAt", "DESC"],
+        ],
+        include: [
+          {
+            model: pengisianTanki,
+            include: baPenerimaanPengisianInclude,
+          },
+        ],
+      });
+
+      const totalRows = await BAPenerimaan.count({ where: whereCondition });
+      const totalPage = Math.ceil(totalRows / limit);
+
+      return res.status(200).json({
+        success: true,
+        result,
+        page,
+        limit,
+        totalRows,
+        totalPage,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   getAllPengisianTanki: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 50;
@@ -265,6 +403,16 @@ module.exports = {
       }
 
       await transaction.commit();
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "pengisianTanki:created",
+        title: "Pengisian Tanki",
+        description: `Pengisian tanki baru dicatat (gross: ${gross}, net: ${net})`,
+        entity: "pengisianTanki",
+        entityId: result.id,
+      });
+
       return res.status(200).json({
         message: "berhasil tambah data",
       });
@@ -319,7 +467,7 @@ module.exports = {
   },
 
   addTanki: async (req, res) => {
-    const { unitKerjaId, kode, kapasitas } = req.body;
+    const { unitKerjaId, kode, kapasitas, factorTank } = req.body;
     try {
       const filePath = "tanki";
       let foto = null;
@@ -332,8 +480,101 @@ module.exports = {
         kode,
         kapasitas: parseInt(kapasitas),
         foto,
+        factorTank,
       });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "tanki:created",
+        title: "Tanki Baru",
+        description: `Tanki ${kode} ditambahkan`,
+        entity: "tanki",
+        entityId: result.id,
+      });
+
       return res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  editTanki: async (req, res) => {
+    const { id } = req.params;
+    const { unitKerjaId, kode, kapasitas, factorTank } = req.body;
+    try {
+      const existing = await tanki.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Tanki tidak ditemukan" });
+      }
+
+      const filePath = "tanki";
+      let foto = existing.foto;
+      if (req.file) {
+        foto = `/${filePath}/${req.file.filename}`;
+      }
+
+      await tanki.update(
+        {
+          unitKerjaId: parseInt(unitKerjaId),
+          kode,
+          kapasitas: parseInt(kapasitas),
+          foto,
+          factorTank,
+        },
+        { where: { id } },
+      );
+
+      const result = await tanki.findByPk(id, {
+        include: [{ model: daftarUnitKerja }],
+      });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "tanki:updated",
+        title: "Tanki Diperbarui",
+        description: `Data tanki ${kode} diperbarui`,
+        entity: "tanki",
+        entityId: result.id,
+      });
+
+      return res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteTanki: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const existing = await tanki.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Tanki tidak ditemukan" });
+      }
+
+      const pengisianCount = await pengisianTanki.count({
+        where: { tangkiId: id },
+      });
+      if (pengisianCount > 0) {
+        return res.status(400).json({
+          error:
+            "Tanki masih memiliki riwayat pengisian dan tidak dapat dihapus.",
+        });
+      }
+
+      await tanki.destroy({ where: { id } });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "tanki:deleted",
+        title: "Tanki Dihapus",
+        description: `Tanki ${existing.kode} dihapus`,
+        entity: "tanki",
+        entityId: existing.id,
+      });
+
+      return res.status(200).json({ message: "Tanki berhasil dihapus" });
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -398,6 +639,15 @@ module.exports = {
 
       await transaction.commit();
       committed = true;
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "baPenerimaan:created",
+        title: "BA Penerimaan",
+        description: `BA Penerimaan dibuat untuk ${pengisianIds.length} pengisian tanki`,
+        entity: "BAPenerimaan",
+        entityId: resultBA.id,
+      });
 
       const ukuranDoc = buildUkuranDoc(ukuran);
       const data = buildBAPenerimaanRows(pengisianList, ukuranDoc);
@@ -485,7 +735,7 @@ module.exports = {
                 include: [
                   { model: transportir },
                   { model: supir },
-                  { model: mitra },
+                  { model: mitra, include: [{ model: jenisMitra }] },
                 ],
               },
               { model: pegawai },
@@ -512,6 +762,11 @@ module.exports = {
             message: "Data mitra tidak ditemukan untuk generate nomor BAST",
           });
         }
+        if (!mitraData.jenisMitra?.kode || !mitraData.kode) {
+          return res.status(400).json({
+            message: "Kode jenis mitra atau kode mitra tidak ditemukan",
+          });
+        }
 
         const dbNoBAST = await nomorSuratKPBPN.findOne({ where: { id: 2 } });
 
@@ -528,7 +783,7 @@ module.exports = {
           dataPengisian.createdAt ||
           new Date();
 
-        const kodeMitra = mitraData.kode;
+        const kodeMitra = `${mitraData.jenisMitra.kode}-${mitraData.kode}`;
         const nomorUrut = parseInt(mitraData.nomorUrut, 10) + 1;
 
         nomorBAST = dbNoBAST.nomor
@@ -630,6 +885,168 @@ module.exports = {
       });
     }
   },
+  editPengisianTanki: async (req, res) => {
+    const { id } = req.params;
+    const {
+      tangkiId,
+      tanggal,
+      flowMeter,
+      gross,
+      net,
+      penampilanVisual,
+      warna,
+      kandunganAir,
+      BSW,
+      catatan,
+      saksi,
+      satuanVolumeId,
+      ids,
+    } = req.body;
+    const transaction = await sequelize.transaction();
+
+    try {
+      const existing = await pengisianTanki.findByPk(id, { transaction });
+
+      if (!existing) {
+        await transaction.rollback();
+        return res.status(404).json({
+          message: "Data pengisian tanki tidak ditemukan",
+        });
+      }
+
+      if (existing.BAPenerimaanId) {
+        await transaction.rollback();
+        return res.status(400).json({
+          message:
+            "Pengisian tanki sudah memiliki BA Penerimaan dan tidak dapat diubah",
+        });
+      }
+
+      if (existing.nomorSurat) {
+        await transaction.rollback();
+        return res.status(400).json({
+          message:
+            "Pengisian tanki sudah memiliki nomor surat BAST dan tidak dapat diubah",
+        });
+      }
+
+      await pengisianTanki.update(
+        {
+          tangkiId,
+          tanggal,
+          flowMeter,
+          gross,
+          net,
+          penampilanVisual,
+          warna,
+          kandunganAir,
+          BSW,
+          catatan,
+          saksi,
+          satuanVolumeId: satuanVolumeId
+            ? parseInt(satuanVolumeId, 10)
+            : null,
+        },
+        { where: { id }, transaction },
+      );
+
+      await konfirmasiPenerimaan.update(
+        { pengisianTankiId: null },
+        { where: { pengisianTankiId: id }, transaction },
+      );
+
+      if (ids?.length) {
+        await konfirmasiPenerimaan.update(
+          { pengisianTankiId: id },
+          {
+            where: { id: { [Op.in]: ids } },
+            transaction,
+          },
+        );
+      }
+
+      await transaction.commit();
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "pengisianTanki:updated",
+        title: "Pengisian Tanki",
+        description: `Data pengisian tanki #${id} diperbarui`,
+        entity: "pengisianTanki",
+        entityId: parseInt(id, 10),
+      });
+
+      return res.status(200).json({
+        message: "Data pengisian tanki berhasil diperbarui",
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({
+        message: err.message || err.toString(),
+      });
+    }
+  },
+
+  deletePengisianTanki: async (req, res) => {
+    const { id } = req.params;
+    const transaction = await sequelize.transaction();
+
+    try {
+      const existing = await pengisianTanki.findByPk(id, { transaction });
+
+      if (!existing) {
+        await transaction.rollback();
+        return res.status(404).json({
+          message: "Data pengisian tanki tidak ditemukan",
+        });
+      }
+
+      if (existing.BAPenerimaanId) {
+        await transaction.rollback();
+        return res.status(400).json({
+          message:
+            "Pengisian tanki sudah memiliki BA Penerimaan dan tidak dapat dihapus",
+        });
+      }
+
+      if (existing.nomorSurat) {
+        await transaction.rollback();
+        return res.status(400).json({
+          message:
+            "Pengisian tanki sudah memiliki nomor surat BAST dan tidak dapat dihapus",
+        });
+      }
+
+      await konfirmasiPenerimaan.update(
+        { pengisianTankiId: null },
+        { where: { pengisianTankiId: id }, transaction },
+      );
+
+      await pengisianTanki.destroy({ where: { id }, transaction });
+      await transaction.commit();
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "pengisianTanki:deleted",
+        title: "Pengisian Tanki",
+        description: `Data pengisian tanki #${id} dihapus`,
+        entity: "pengisianTanki",
+        entityId: parseInt(id, 10),
+      });
+
+      return res.status(200).json({
+        message: "Data pengisian tanki berhasil dihapus",
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({
+        message: err.message || err.toString(),
+      });
+    }
+  },
+
   getTankiMonitoring: async (req, res) => {
     try {
       const result = await tanki.findAll({

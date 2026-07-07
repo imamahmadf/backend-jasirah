@@ -817,14 +817,20 @@ module.exports = {
 
   searchUnitKerja: async (req, res) => {
     try {
-      const { q } = req.query;
+      const { q, status } = req.query;
+
+      const where = {
+        unitKerja: {
+          [Op.like]: `%${q}%`,
+        },
+      };
+
+      if (status) {
+        where.status = status;
+      }
 
       const result = await daftarUnitKerja.findAll({
-        where: {
-          unitKerja: {
-            [Op.like]: `%${q}%`, // Import Op dari Sequelize
-          },
-        },
+        where,
         attributes: ["id", "unitKerja"],
         limit: 10,
         order: [["unitKerja", "ASC"]],

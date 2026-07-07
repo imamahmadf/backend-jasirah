@@ -43,7 +43,10 @@ const pengeluaranRouter = require("./pengeluaranRouter");
 const mitraRouter = require("./mitraRouter");
 const pengirimanRouter = require("./pengirimanRouter");
 const tankiRouter = require("./tankiRouter");
+const sumurMinyakRouter = require("./sumurMinyakRouter");
 const userKPBPNRouter = require("./userKPBPNRouter");
+const dashboardRouter = require("./dashboardRouter");
+const templateKPBPNRouter = require("./templateKPBPNRouter");
 
 module.exports = {
   perjalananRouter,
@@ -91,5 +94,8 @@ module.exports = {
   mitraRouter,
   pengirimanRouter,
   tankiRouter,
+  sumurMinyakRouter,
   userKPBPNRouter,
+  dashboardRouter,
+  templateKPBPNRouter,
 };

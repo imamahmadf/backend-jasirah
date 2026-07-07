@@ -8,6 +8,7 @@ const {
   userRoleKPBPN,
   userKPBPN,
   roleKPBPN,
+  mitra,
   daftarUnitKerja,
   profesi,
   statusPegawai,
@@ -29,8 +30,7 @@ module.exports = {
     const transaction = await sequelize.transaction();
     console.log(req.body);
     try {
-      const { nama, namaPengguna, password, role, unitKerjaId, pegawaiId } =
-        req.body;
+      const { nama, namaPengguna, password, role, mitraId } = req.body;
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const existingUser = await userKPBPN.findOne({ where: { namaPengguna } });
@@ -41,40 +41,20 @@ module.exports = {
           .json({ message: "Nama pengguna sudah digunakan" });
       }
 
-      // Validasi pegawaiId tidak boleh duplikat
-      if (pegawaiId) {
-        const existingProfile = await profile.findOne({ where: { pegawaiId } });
-        if (existingProfile) {
-          await transaction.rollback();
-          return res
-            .status(400)
-            .json({ message: "Pegawai ID sudah digunakan" });
-        }
-      }
-
-      const newUser = await KPBPN.create(
+      const newUser = await userKPBPN.create(
         {
           nama,
           namaPengguna,
           password: hashedPassword,
+          mitraId: mitraId || null,
         },
         { transaction },
       );
 
-      const newProfile = await profile.create(
+      await userRoleKPBPN.create(
         {
-          nama,
-          userId: newUser.id,
-          unitKerjaId,
-          pegawaiId,
-        },
-        { transaction },
-      );
-
-      const newUserRole = await userRole.create(
-        {
-          userId: newUser.id,
-          roleId: role,
+          userKPBPNId: newUser.id,
+          roleKPBPNId: role,
         },
         { transaction },
       );
@@ -84,7 +64,6 @@ module.exports = {
     } catch (err) {
       await transaction.rollback();
       console.log(err);
-      // Handle unique constraint error
       if (
         err.name === "SequelizeUniqueConstraintError" ||
         err.name === "SequelizeValidationError"
@@ -93,11 +72,6 @@ module.exports = {
           return res
             .status(400)
             .json({ message: "Nama pengguna sudah digunakan" });
-        }
-        if (err.errors && err.errors.some((e) => e.path === "pegawaiId")) {
-          return res
-            .status(400)
-            .json({ message: "Pegawai ID sudah digunakan" });
         }
       }
       res.status(500).json({ error: err.message });
@@ -113,6 +87,20 @@ module.exports = {
           {
             model: userRoleKPBPN,
             include: [{ model: roleKPBPN, attributes: ["name"] }],
+          },
+          {
+            model: mitra,
+            attributes: [
+              "id",
+              "nama",
+              "alamat",
+              "npwp",
+              "kontak",
+              "penanggungJawab",
+              "kode",
+              "nomorUrut",
+              "jenisMitraId",
+            ],
           },
         ],
       });
@@ -144,8 +132,10 @@ module.exports = {
           id: resultUser.id,
           nama: resultUser.nama,
           namaPengguna: resultUser.namaPengguna,
+          mitraId: resultUser.mitraId,
         },
         role: userRoles,
+        mitra: resultUser.mitra ?? null,
       });
     } catch (err) {
       console.log(err);
@@ -174,23 +164,22 @@ module.exports = {
     const id = req.params.id;
 
     try {
-      const result = await profile.findOne({
-        attributes: ["id", "nama", "profilePic"],
+      const result = await userKPBPN.findOne({
+        attributes: ["id", "nama", "namaPengguna"],
         where: { id },
         include: [
           {
-            model: userKPBPN,
-            attributes: ["id", "namaPengguna"],
-            include: [
-              {
-                model: userRoleKPBPN,
-                attributes: ["id"],
-                include: [{ model: roleKPBPN, attributes: ["name"] }],
-              },
-            ],
+            model: userRoleKPBPN,
+            attributes: ["id", "roleKPBPNId"],
+            include: [{ model: roleKPBPN, attributes: ["id", "name"] }],
           },
         ],
       });
+
+      if (!result) {
+        return res.status(404).json({ message: "User tidak ditemukan" });
+      }
+
       return res
         .status(200)
         .json({ result, message: "Data profile berhasil diambil" });
@@ -320,6 +309,43 @@ module.exports = {
       });
     }
   },
+
+  getAllUser: async (req, res) => {
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 50;
+    const namaPengguna = req.query.namaPengguna;
+    const offset = limit * page;
+    const whereCondition = namaPengguna
+      ? { nama: { [Op.like]: `%${namaPengguna}%` } }
+      : {};
+    try {
+      const result = await userKPBPN.findAll({
+        where: whereCondition,
+        offset,
+        limit,
+        attributes: ["id", "nama", "namaPengguna"],
+        include: [
+          {
+            model: userRoleKPBPN,
+            include: [{ model: roleKPBPN, attributes: ["id", "name"] }],
+          },
+        ],
+      });
+
+      const totalRows = await userKPBPN.count({
+        where: whereCondition,
+      });
+      const totalPage = Math.ceil(totalRows / limit);
+
+      return res
+        .status(200)
+        .json({ result, page, limit, totalRows, totalPage });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   updatePassword: async (req, res) => {
     try {
       const { passwordBaru } = req.body;

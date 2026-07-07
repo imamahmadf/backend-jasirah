@@ -119,6 +119,7 @@ module.exports = (sequelize, DataTypes) => {
       kode: DataTypes.STRING,
       asal: DataTypes.STRING,
       indukUnitKerjaId: DataTypes.INTEGER,
+      status: DataTypes.ENUM("gudang", "non-gudang"),
       // templateSuratTugas: DataTypes.STRING,
       // templateSuratTugasSingkat: DataTypes.STRING,
       // templateNotaDinas: DataTypes.STRING,
