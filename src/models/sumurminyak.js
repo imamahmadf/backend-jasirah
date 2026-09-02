@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
   class sumurMinyak extends Model {
     static associate(models) {
       this.belongsTo(models.mitra, { foreignKey: "mitraId" });
+      this.hasMany(models.produksiSumur, { foreignKey: "sumurMinyakId" });
     }
   }
   sumurMinyak.init(
@@ -14,8 +15,8 @@ module.exports = (sequelize, DataTypes) => {
       nomor: DataTypes.STRING,
       statusVerifikasi: DataTypes.ENUM("sudah", "belum", "tidak"),
       tanggalVerifikasi: DataTypes.DATE,
-      longitude: DataTypes.DECIMAL,
-      latitude: DataTypes.DECIMAL,
+      longitude: DataTypes.DECIMAL(11, 8),
+      latitude: DataTypes.DECIMAL(11, 8),
       alamat: DataTypes.STRING,
       produksiHarian: DataTypes.DECIMAL,
     },

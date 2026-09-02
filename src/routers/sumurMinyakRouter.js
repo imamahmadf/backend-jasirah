@@ -4,6 +4,11 @@ const fileUploader = require("../middleware/uploader");
 const routers = express.Router();
 
 routers.get("/get", sumurMinyakControllers.getSumurMinyak);
+routers.get("/get/detail/:id", sumurMinyakControllers.getSumurMinyakById);
+routers.get(
+  "/get/produksi/:sumurMinyakId",
+  sumurMinyakControllers.getProduksiSumurBySumurMinyak,
+);
 routers.post(
   "/post",
   fileUploader({

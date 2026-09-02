@@ -13,9 +13,9 @@ const templateKPBPNs = [
   },
   {
     id: 2,
-    nama: "Template BA Penerimaan",
-    jenisDokumen: "BAPenerimaan",
-    template: "/BAST/BAPenerimaan-template.docx",
+    nama: "Template BA Bongkar",
+    jenisDokumen: "BABongkar",
+    template: "/BAST/BABongkar-template.docx",
     status: "aktif",
     createdAt: currentDate,
     updatedAt: currentDate,

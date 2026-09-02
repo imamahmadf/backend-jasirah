@@ -8,7 +8,11 @@ const {
   tanki,
   konfirmasiPenerimaan,
   daftarUnitKerja,
-  BAPenerimaan,
+  stasiunPengumpulMinyak,
+  BABongkar,
+  BABongkarTanki,
+  ujiLabK3S,
+  BAK3S,
   nomorSuratKPBPN,
   jenisMitra,
   satuanVolume,
@@ -27,6 +31,7 @@ const pengisianIncludeForBA = [
   { model: tanki },
   {
     model: konfirmasiPenerimaan,
+    through: { attributes: [] },
     include: [
       {
         model: suratJalan,
@@ -36,11 +41,12 @@ const pengisianIncludeForBA = [
   },
 ];
 
-const baPenerimaanPengisianInclude = [
+const baBongkarPengisianInclude = [
   { model: tanki },
   { model: satuanVolume },
   {
     model: konfirmasiPenerimaan,
+    through: { attributes: [] },
     include: [
       {
         model: suratJalan,
@@ -51,7 +57,94 @@ const baPenerimaanPengisianInclude = [
   },
 ];
 
-const buildBAPenerimaanWhere = async ({ startDate, endDate, tangkiId, baId }) => {
+const parseKonfirmasiIds = (ids) => [
+  ...new Set(
+    (Array.isArray(ids) ? ids : [])
+      .map((id) => parseInt(id, 10))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  ),
+];
+
+const parseDecimalInput = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim().replace(",", ".");
+  const num = parseFloat(normalized);
+  return Number.isNaN(num) ? null : num;
+};
+
+const deletePublicFile = (relativePath) => {
+  if (!relativePath) return;
+  const fullPath = path.join(
+    __dirname,
+    "../public",
+    String(relativePath).replace(/^\//, ""),
+  );
+  if (fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
+  }
+};
+
+const parseBak3sPayload = (body) => {
+  const api = parseDecimalInput(body.api);
+  const BSNW = parseDecimalInput(body.BSNW);
+  const produksi = parseDecimalInput(body.produksi);
+  const sg = parseDecimalInput(body.sg);
+
+  if (api === null || BSNW === null || produksi === null || sg === null) {
+    return {
+      error: "API, BSNW, produksi, dan SG wajib diisi",
+    };
+  }
+
+  return { api, BSNW, produksi, sg };
+};
+
+const getLatestUjiLabForTanki = async (tangkiId, transaction) => {
+  return ujiLabK3S.findOne({
+    where: { tangkiId },
+    include: [{ model: tanki, attributes: ["id", "kode"] }],
+    order: [
+      ["createdAt", "DESC"],
+      ["id", "DESC"],
+    ],
+    transaction,
+  });
+};
+
+const assertTankiSiapBABongkar = async (tangkiIds, transaction) => {
+  const uniqueIds = [...new Set(tangkiIds.filter(Boolean))];
+  const ujiLabs = [];
+
+  for (const tangkiId of uniqueIds) {
+    const latest = await getLatestUjiLabForTanki(tangkiId, transaction);
+    const tank = latest?.tanki || (await tanki.findByPk(tangkiId, { transaction }));
+    const kode = tank?.kode || `#${tangkiId}`;
+
+    if (!latest) {
+      throw new Error(
+        `Tanki ${kode} belum memiliki uji lab K3S. Lakukan uji lab terlebih dahulu`,
+      );
+    }
+
+    if (latest.BABongkarId) {
+      throw new Error(
+        `Tanki ${kode} perlu uji lab K3S baru sebelum membuat BA Bongkar`,
+      );
+    }
+
+    if (latest.kualitas !== "ONSPEC") {
+      throw new Error(
+        `Tanki ${kode} hasil uji lab OFFSPEC. Lakukan pencampuran bahan kimia lalu uji ulang`,
+      );
+    }
+
+    ujiLabs.push(latest);
+  }
+
+  return ujiLabs;
+};
+
+const buildBABongkarWhere = async ({ startDate, endDate, tangkiId, baId }) => {
   const whereCondition = {};
 
   if (baId) {
@@ -75,15 +168,15 @@ const buildBAPenerimaanWhere = async ({ startDate, endDate, tangkiId, baId }) =>
     const pengisianWithBA = await pengisianTanki.findAll({
       where: {
         tangkiId: parsedTangkiId,
-        BAPenerimaanId: { [Op.ne]: null },
+        BABongkarId: { [Op.ne]: null },
       },
-      attributes: ["BAPenerimaanId"],
-      group: ["BAPenerimaanId"],
+      attributes: ["BABongkarId"],
+      group: ["BABongkarId"],
       raw: true,
     });
 
     const baIds = pengisianWithBA
-      .map((item) => item.BAPenerimaanId)
+      .map((item) => item.BABongkarId)
       .filter(Boolean);
 
     if (!baIds.length) {
@@ -122,17 +215,38 @@ const parseUkuranBA = (ukuranCairan, ukuranAir) => {
   return { parsedUkuranCairan, parsedUkuranAir, uMin };
 };
 
+const LITER_PER_BARREL = 158.987;
+const LITER_PER_DRUM = 200;
+
+const convertVolumeToBarrel = (volume, satuanName) => {
+  const value = Number(volume);
+  if (Number.isNaN(value)) return 0;
+
+  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+
+  if (satuan === "barrel") return value;
+  if (satuan === "liter") return value / LITER_PER_BARREL;
+  if (satuan === "drum") return (value * LITER_PER_DRUM) / LITER_PER_BARREL;
+
+  return value;
+};
+
+const roundBarrelVolume = (value) =>
+  Math.round((Number(value) + Number.EPSILON) * 1000) / 1000;
+
 const buildUkuranDoc = ({ parsedUkuranCairan, parsedUkuranAir, uMin }) => ({
   uCair: parsedUkuranCairan ?? "-",
   uAir: parsedUkuranAir ?? "-",
   uMin: uMin ?? "-",
 });
 
+const parseFactorTank = (factorTank) =>
+  factorTank !== null && factorTank !== undefined && factorTank !== ""
+    ? parseFloat(factorTank)
+    : null;
+
 const buildFactorDocFields = (ukuranDoc, factorTank) => {
-  const factor =
-    factorTank !== null && factorTank !== undefined && factorTank !== ""
-      ? parseInt(factorTank, 10)
-      : null;
+  const factor = parseFactorTank(factorTank);
   const uCairNum = typeof ukuranDoc.uCair === "number" ? ukuranDoc.uCair : null;
   const uAirNum = typeof ukuranDoc.uAir === "number" ? ukuranDoc.uAir : null;
   const uMinNum = typeof ukuranDoc.uMin === "number" ? ukuranDoc.uMin : null;
@@ -169,45 +283,129 @@ const joinUniqueValues = (values) => {
   return result.length ? result.join(", ") : "-";
 };
 
-const buildBAPenerimaanRows = (pengisianList, ukuranDoc) => {
-  const nopolList = [];
-  const driverList = [];
-  const noTankiList = [];
+const buildBABongkarRows = (pengisianList, ukuranLookup) => {
+  const byTank = new Map();
 
   for (const pengisian of pengisianList) {
-    const kodeTanki = pengisian.tanki?.kode;
-    if (kodeTanki) noTankiList.push(kodeTanki);
+    const tangkiId = pengisian.tangkiId ?? pengisian.tanki?.id;
+    if (!tangkiId) continue;
 
-    for (const kp of pengisian.konfirmasiPenerimaans || []) {
-      const plat = kp.suratJalan?.transportir?.plat;
-      const namaSupir = kp.suratJalan?.supir?.nama;
-      if (plat) nopolList.push(plat);
-      if (namaSupir) driverList.push(namaSupir);
+    if (!byTank.has(tangkiId)) {
+      byTank.set(tangkiId, {
+        tangkiId,
+        kode: pengisian.tanki?.kode || "-",
+        factorTank: pengisian.tanki?.factorTank,
+        items: [],
+      });
     }
+
+    byTank.get(tangkiId).items.push(pengisian);
   }
 
-  const factorTank = pengisianList.find((item) => item.tanki?.factorTank != null)
-    ?.tanki?.factorTank;
-  const docFields = buildFactorDocFields(ukuranDoc, factorTank);
+  const rows = [];
+
+  for (const group of byTank.values()) {
+    const nopolList = [];
+    const driverList = [];
+
+    for (const pengisian of group.items) {
+      for (const kp of pengisian.konfirmasiPenerimaans || []) {
+        const plat = kp.suratJalan?.transportir?.plat;
+        const namaSupir = kp.suratJalan?.supir?.nama;
+        if (plat) nopolList.push(plat);
+        if (namaSupir) driverList.push(namaSupir);
+      }
+    }
+
+    const ukuranDoc =
+      ukuranLookup.get(group.tangkiId) ||
+      ukuranLookup.get("default") ||
+      buildUkuranDoc(parseUkuranBA(null, null));
+    const docFields = buildFactorDocFields(ukuranDoc, group.factorTank);
+
+    rows.push({
+      nopol: joinUniqueValues(nopolList),
+      driver: joinUniqueValues(driverList),
+      noTanki: group.kode,
+      ...docFields,
+    });
+  }
+
+  return rows.sort((a, b) =>
+    String(a.noTanki).localeCompare(String(b.noTanki), "id"),
+  );
+};
+
+const buildUkuranLookup = (ba, tankiDetails = []) => {
+  const lookup = new Map();
+  const fallback = buildUkuranDoc(
+    parseUkuranBA(ba?.ukuranCairan, ba?.ukuranAir),
+  );
+  lookup.set("default", fallback);
+
+  for (const detail of tankiDetails) {
+    const tangkiId = detail.tangkiId;
+    if (!tangkiId) continue;
+    lookup.set(
+      tangkiId,
+      buildUkuranDoc(parseUkuranBA(detail.ukuranCairan, detail.ukuranAir)),
+    );
+  }
+
+  return lookup;
+};
+
+const parseTankiBAPayload = (body) => {
+  const { tanggal, ukuranCairan, ukuranAir, ids, tanki: tankiPayload } = body;
+
+  if (Array.isArray(tankiPayload) && tankiPayload.length) {
+    return tankiPayload
+      .map((item) => ({
+        tangkiId: parseInt(item.tangkiId, 10),
+        ids: (Array.isArray(item.ids) ? item.ids : [])
+          .map((id) => parseInt(id, 10))
+          .filter((id) => Number.isInteger(id) && id > 0),
+        ukuranCairan:
+          item.ukuranCairan !== undefined && item.ukuranCairan !== ""
+            ? item.ukuranCairan
+            : null,
+        ukuranAir:
+          item.ukuranAir !== undefined && item.ukuranAir !== ""
+            ? item.ukuranAir
+            : null,
+      }))
+      .filter(
+        (item) =>
+          Number.isInteger(item.tangkiId) &&
+          item.tangkiId > 0 &&
+          item.ids.length,
+      );
+  }
+
+  const pengisianIds = (Array.isArray(ids) ? ids : [])
+    .map((id) => parseInt(id, 10))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (!pengisianIds.length) return [];
 
   return [
     {
-      nopol: joinUniqueValues(nopolList),
-      driver: joinUniqueValues(driverList),
-      noTanki: joinUniqueValues(noTankiList),
-      ...docFields,
+      tangkiId: null,
+      ids: pengisianIds,
+      ukuranCairan,
+      ukuranAir,
     },
   ];
 };
 
-const generateBAPenerimaanBuffer = (tanggal, data) => {
+const generateBABongkarBuffer = (tanggal, data) => {
   const templatePath = path.join(
     __dirname,
-    "../public/BAST/BAPenerimaan-template.docx",
+    "../public/BAST/BABongkar-template.docx",
   );
 
   if (!fs.existsSync(templatePath)) {
-    throw new Error("Template BA Penerimaan tidak ditemukan");
+    throw new Error("Template BA Bongkar tidak ditemukan");
   }
 
   const tanggalObj = new Date(tanggal);
@@ -249,14 +447,14 @@ const sendDocxDownload = (res, buffer, fileName) => {
 };
 
 module.exports = {
-  getAllBAPenerimaan: async (req, res) => {
+  getAllBABongkar: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 50;
     const offset = limit * page;
     const { startDate, endDate, tangkiId, baId } = req.query;
 
     try {
-      const { whereCondition, emptyResult } = await buildBAPenerimaanWhere({
+      const { whereCondition, emptyResult } = await buildBABongkarWhere({
         startDate,
         endDate,
         tangkiId,
@@ -274,7 +472,7 @@ module.exports = {
         });
       }
 
-      const result = await BAPenerimaan.findAll({
+      const result = await BABongkar.findAll({
         where: whereCondition,
         limit,
         offset,
@@ -285,12 +483,25 @@ module.exports = {
         include: [
           {
             model: pengisianTanki,
-            include: baPenerimaanPengisianInclude,
+            include: baBongkarPengisianInclude,
+          },
+          {
+            model: BABongkarTanki,
+            include: [{ model: tanki, attributes: ["id", "kode"] }],
+          },
+          {
+            model: ujiLabK3S,
+            as: "ujiLabK3S",
+            include: [{ model: tanki, attributes: ["id", "kode"] }],
+          },
+          {
+            model: BAK3S,
+            as: "BAK3S",
           },
         ],
       });
 
-      const totalRows = await BAPenerimaan.count({ where: whereCondition });
+      const totalRows = await BABongkar.count({ where: whereCondition });
       const totalPage = Math.ceil(totalRows / limit);
 
       return res.status(200).json({
@@ -323,10 +534,14 @@ module.exports = {
         ],
         include: [
           { model: tanki },
-          { model: BAPenerimaan },
+          {
+            model: BABongkar,
+            include: [{ model: BABongkarTanki }],
+          },
           { model: satuanVolume },
           {
             model: konfirmasiPenerimaan,
+            through: { attributes: [] },
             include: [
               {
                 model: suratJalan,
@@ -392,14 +607,9 @@ module.exports = {
         { transaction },
       );
 
-      if (ids?.length) {
-        await konfirmasiPenerimaan.update(
-          { pengisianTankiId: result.id },
-          {
-            where: { id: { [Op.in]: ids } },
-            transaction,
-          },
-        );
+      const konfirmasiIds = parseKonfirmasiIds(ids);
+      if (konfirmasiIds.length) {
+        await result.setKonfirmasiPenerimaans(konfirmasiIds, { transaction });
       }
 
       await transaction.commit();
@@ -429,12 +639,23 @@ module.exports = {
     try {
       const result = await tanki.findAll({
         order: [["kode", "ASC"]],
-        include: [{ model: daftarUnitKerja }],
+        include: [
+          { model: daftarUnitKerja },
+          { model: stasiunPengumpulMinyak },
+          { model: satuanVolume },
+        ],
       });
       const resultSatuanVolume = await satuanVolume.findAll({
         order: [["id", "ASC"]],
       });
-      return res.status(200).json({ result, resultSatuanVolume });
+      const resultStasiunPengumpulMinyak = await stasiunPengumpulMinyak.findAll(
+        { order: [["nama", "ASC"]] },
+      );
+      return res.status(200).json({
+        result,
+        resultSatuanVolume,
+        resultStasiunPengumpulMinyak,
+      });
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -444,7 +665,6 @@ module.exports = {
   getKonfirmasiPenerimaan: async (req, res) => {
     try {
       const result = await konfirmasiPenerimaan.findAll({
-        where: { pengisianTankiId: null },
         include: [
           {
             model: suratJalan,
@@ -455,6 +675,11 @@ module.exports = {
             ],
           },
           { model: pegawai },
+          {
+            model: pengisianTanki,
+            through: { attributes: [] },
+            include: [{ model: tanki, attributes: ["id", "kode"] }],
+          },
         ],
         order: [["createdAt", "DESC"]],
       });
@@ -466,8 +691,276 @@ module.exports = {
     }
   },
 
+  getUjiLabK3S: async (req, res) => {
+    const { tangkiId } = req.query;
+    const whereCondition = {};
+
+    if (tangkiId) {
+      const parsed = parseInt(tangkiId, 10);
+      if (!parsed) {
+        return res.status(400).json({ error: "ID tanki tidak valid" });
+      }
+      whereCondition.tangkiId = parsed;
+    }
+
+    try {
+      const result = await ujiLabK3S.findAll({
+        where: whereCondition,
+        include: [
+          { model: tanki, attributes: ["id", "kode"] },
+          { model: BABongkar, attributes: ["id", "tanggal"] },
+        ],
+        order: [
+          ["createdAt", "DESC"],
+          ["id", "DESC"],
+        ],
+      });
+
+      return res.status(200).json({ result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  postUjiLabK3S: async (req, res) => {
+    const { tangkiId, tanggal, api, BSNW, suhu, sg, kualitas } = req.body;
+
+    const parsedTangkiId = parseInt(tangkiId, 10);
+    const apiValue = parseDecimalInput(api);
+    const bsnwValue = parseDecimalInput(BSNW);
+    const suhuValue = parseDecimalInput(suhu);
+    const sgValue = parseDecimalInput(sg);
+    const kualitasValue = String(kualitas || "")
+      .trim()
+      .toUpperCase();
+
+    if (
+      !parsedTangkiId ||
+      apiValue === null ||
+      bsnwValue === null ||
+      suhuValue === null ||
+      sgValue === null ||
+      !["OFFSPEC", "ONSPEC"].includes(kualitasValue)
+    ) {
+      return res.status(400).json({
+        error:
+          "Tanki, API, BSNW, suhu, SG, dan kualitas (OFFSPEC/ONSPEC) wajib diisi",
+      });
+    }
+
+    try {
+      const tank = await tanki.findByPk(parsedTangkiId);
+      if (!tank) {
+        return res.status(404).json({ error: "Tanki tidak ditemukan" });
+      }
+
+      let foto = null;
+      if (req.file) {
+        foto = `/uji-lab-k3s/${req.file.filename}`;
+      }
+
+      const result = await ujiLabK3S.create({
+        tangkiId: parsedTangkiId,
+        tanggal: tanggal ? new Date(tanggal) : new Date(),
+        foto,
+        api: apiValue,
+        BSNW: bsnwValue,
+        suhu: suhuValue,
+        sg: sgValue,
+        kualitas: kualitasValue,
+      });
+
+      const created = await ujiLabK3S.findByPk(result.id, {
+        include: [
+          { model: tanki, attributes: ["id", "kode"] },
+          { model: BABongkar, attributes: ["id", "tanggal"] },
+        ],
+      });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "ujiLabK3S:created",
+        title: "Uji Lab K3S",
+        description: `Uji lab tanki ${tank.kode} dicatat (${kualitasValue})`,
+        entity: "ujiLabK3S",
+        entityId: result.id,
+      });
+
+      return res.status(200).json({
+        message: "Uji lab K3S berhasil disimpan",
+        result: created,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteUjiLabK3S: async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const existing = await ujiLabK3S.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Data uji lab tidak ditemukan" });
+      }
+
+      if (existing.BABongkarId) {
+        return res.status(400).json({
+          error:
+            "Uji lab yang sudah dipakai untuk BA Bongkar tidak dapat dihapus",
+        });
+      }
+
+      await ujiLabK3S.destroy({ where: { id } });
+      return res.status(200).json({ message: "Uji lab K3S berhasil dihapus" });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  postBAK3S: async (req, res) => {
+    const BABongkarId = parseInt(req.body.BABongkarId, 10);
+    if (!BABongkarId) {
+      return res.status(400).json({ error: "BA Bongkar wajib dipilih" });
+    }
+
+    const parsed = parseBak3sPayload(req.body);
+    if (parsed.error) {
+      return res.status(400).json({ error: parsed.error });
+    }
+
+    try {
+      const ba = await BABongkar.findByPk(BABongkarId);
+      if (!ba) {
+        return res.status(404).json({ error: "BA Bongkar tidak ditemukan" });
+      }
+
+      const existing = await BAK3S.findOne({ where: { BABongkarId } });
+      if (existing) {
+        return res.status(400).json({
+          error: "BA Bongkar ini sudah memiliki BAK3S",
+        });
+      }
+
+      const dokumen = req.file ? `/bak3s/${req.file.filename}` : null;
+      const result = await BAK3S.create({
+        BABongkarId,
+        dokumen,
+        api: parsed.api,
+        BSNW: parsed.BSNW,
+        produksi: parsed.produksi,
+        sg: parsed.sg,
+      });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "BAK3S:created",
+        title: "BAK3S",
+        description: `BAK3S dibuat untuk BA Bongkar #${BABongkarId}`,
+        entity: "BAK3S",
+        entityId: result.id,
+      });
+
+      return res.status(200).json({
+        message: "BAK3S berhasil disimpan",
+        result,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  editBAK3S: async (req, res) => {
+    const { id } = req.params;
+    const parsed = parseBak3sPayload(req.body);
+    if (parsed.error) {
+      return res.status(400).json({ error: parsed.error });
+    }
+
+    try {
+      const existing = await BAK3S.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "BAK3S tidak ditemukan" });
+      }
+
+      let dokumen = existing.dokumen;
+      if (req.file) {
+        deletePublicFile(existing.dokumen);
+        dokumen = `/bak3s/${req.file.filename}`;
+      }
+
+      await BAK3S.update(
+        {
+          dokumen,
+          api: parsed.api,
+          BSNW: parsed.BSNW,
+          produksi: parsed.produksi,
+          sg: parsed.sg,
+        },
+        { where: { id } },
+      );
+
+      const result = await BAK3S.findByPk(id);
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "BAK3S:updated",
+        title: "BAK3S Diperbarui",
+        description: `BAK3S BA Bongkar #${existing.BABongkarId} diperbarui`,
+        entity: "BAK3S",
+        entityId: result.id,
+      });
+
+      return res.status(200).json({
+        message: "BAK3S berhasil diperbarui",
+        result,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteBAK3S: async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const existing = await BAK3S.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "BAK3S tidak ditemukan" });
+      }
+
+      deletePublicFile(existing.dokumen);
+      await BAK3S.destroy({ where: { id } });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "BAK3S:deleted",
+        title: "BAK3S Dihapus",
+        description: `BAK3S BA Bongkar #${existing.BABongkarId} dihapus`,
+        entity: "BAK3S",
+        entityId: existing.id,
+      });
+
+      return res.status(200).json({ message: "BAK3S berhasil dihapus" });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   addTanki: async (req, res) => {
-    const { unitKerjaId, kode, kapasitas, factorTank } = req.body;
+    const {
+      unitKerjaId,
+      stasiunPengumpulMinyakId,
+      kode,
+      kapasitas,
+      factorTank,
+      satuanVolumeId,
+    } = req.body;
     try {
       const filePath = "tanki";
       let foto = null;
@@ -476,11 +969,15 @@ module.exports = {
         foto = `/${filePath}/${filename}`;
       }
       const result = await tanki.create({
-        unitKerjaId: parseInt(unitKerjaId),
+        unitKerjaId: unitKerjaId ? parseInt(unitKerjaId, 10) : null,
+        stasiunPengumpulMinyakId: stasiunPengumpulMinyakId
+          ? parseInt(stasiunPengumpulMinyakId, 10)
+          : null,
         kode,
         kapasitas: parseInt(kapasitas),
         foto,
-        factorTank,
+        factorTank: parseFactorTank(factorTank),
+        satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
       });
 
       const io = req.app.get("socketio");
@@ -501,7 +998,14 @@ module.exports = {
 
   editTanki: async (req, res) => {
     const { id } = req.params;
-    const { unitKerjaId, kode, kapasitas, factorTank } = req.body;
+    const {
+      unitKerjaId,
+      stasiunPengumpulMinyakId,
+      kode,
+      kapasitas,
+      factorTank,
+      satuanVolumeId,
+    } = req.body;
     try {
       const existing = await tanki.findByPk(id);
       if (!existing) {
@@ -516,17 +1020,27 @@ module.exports = {
 
       await tanki.update(
         {
-          unitKerjaId: parseInt(unitKerjaId),
+          unitKerjaId: unitKerjaId
+            ? parseInt(unitKerjaId, 10)
+            : existing.unitKerjaId,
+          stasiunPengumpulMinyakId: stasiunPengumpulMinyakId
+            ? parseInt(stasiunPengumpulMinyakId, 10)
+            : null,
           kode,
           kapasitas: parseInt(kapasitas),
           foto,
-          factorTank,
+          factorTank: parseFactorTank(factorTank),
+          satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
         },
         { where: { id } },
       );
 
       const result = await tanki.findByPk(id, {
-        include: [{ model: daftarUnitKerja }],
+        include: [
+          { model: daftarUnitKerja },
+          { model: stasiunPengumpulMinyak },
+          { model: satuanVolume },
+        ],
       });
 
       const io = req.app.get("socketio");
@@ -581,16 +1095,21 @@ module.exports = {
     }
   },
 
-  postBAPenerimaan: async (req, res) => {
-    const { tanggal, ukuranCairan, ukuranAir, ids } = req.body;
+  postBABongkar: async (req, res) => {
+    const { tanggal } = req.body;
+    const tankiGroups = parseTankiBAPayload(req.body);
 
     if (!tanggal) {
       return res
         .status(400)
-        .json({ message: "Tanggal BA Penerimaan wajib diisi" });
+        .json({ message: "Tanggal BA Bongkar wajib diisi" });
     }
 
-    if (!ids?.length) {
+    const pengisianIds = [
+      ...new Set(tankiGroups.flatMap((group) => group.ids)),
+    ];
+
+    if (!pengisianIds.length) {
       return res
         .status(400)
         .json({ message: "Minimal satu pengisian tanki harus dipilih" });
@@ -600,7 +1119,6 @@ module.exports = {
     let committed = false;
 
     try {
-      const pengisianIds = ids.map((id) => parseInt(id, 10));
       const pengisianList = await pengisianTanki.findAll({
         where: { id: { [Op.in]: pengisianIds } },
         include: pengisianIncludeForBA,
@@ -611,28 +1129,105 @@ module.exports = {
         throw new Error("Beberapa data pengisian tanki tidak ditemukan");
       }
 
-      const sudahAdaBA = pengisianList.filter((item) => item.BAPenerimaanId);
+      const sudahAdaBA = pengisianList.filter((item) => item.BABongkarId);
       if (sudahAdaBA.length) {
         throw new Error(
-          "Beberapa pengisian tanki sudah memiliki BA Penerimaan",
+          "Beberapa pengisian tanki sudah memiliki BA Bongkar",
         );
       }
 
-      const ukuran = parseUkuranBA(ukuranCairan, ukuranAir);
+      const pengisianById = new Map(
+        pengisianList.map((item) => [item.id, item]),
+      );
+      const resolvedGroups = [];
 
-      const resultBA = await BAPenerimaan.create(
+      for (const group of tankiGroups) {
+        const items = group.ids.map((id) => pengisianById.get(id)).filter(Boolean);
+        const tangkiIds = [
+          ...new Set(
+            items
+              .map((item) => item.tangkiId ?? item.tanki?.id)
+              .filter(Boolean),
+          ),
+        ];
+
+        if (group.tangkiId) {
+          const mismatch = items.find(
+            (item) => (item.tangkiId ?? item.tanki?.id) !== group.tangkiId,
+          );
+          if (mismatch) {
+            throw new Error(
+              "Pengisian tanki tidak sesuai dengan tanki yang dipilih",
+            );
+          }
+        }
+
+        if (tangkiIds.length !== 1 && !group.tangkiId) {
+          for (const tangkiId of tangkiIds) {
+            const groupItems = items.filter(
+              (item) => (item.tangkiId ?? item.tanki?.id) === tangkiId,
+            );
+            resolvedGroups.push({
+              tangkiId,
+              ids: groupItems.map((item) => item.id),
+              ukuranCairan: group.ukuranCairan,
+              ukuranAir: group.ukuranAir,
+            });
+          }
+        } else {
+          resolvedGroups.push({
+            tangkiId: group.tangkiId || tangkiIds[0],
+            ids: group.ids,
+            ukuranCairan: group.ukuranCairan,
+            ukuranAir: group.ukuranAir,
+          });
+        }
+      }
+
+      const ujiLabs = await assertTankiSiapBABongkar(
+        resolvedGroups.map((group) => group.tangkiId),
+        transaction,
+      );
+
+      const firstUkuran = parseUkuranBA(
+        resolvedGroups[0]?.ukuranCairan,
+        resolvedGroups[0]?.ukuranAir,
+      );
+
+      const resultBA = await BABongkar.create(
         {
           tanggal,
-          ukuranCairan: ukuran.parsedUkuranCairan,
-          ukuranAir: ukuran.parsedUkuranAir,
+          ukuranCairan: firstUkuran.parsedUkuranCairan,
+          ukuranAir: firstUkuran.parsedUkuranAir,
         },
         { transaction },
       );
 
+      await BABongkarTanki.bulkCreate(
+        resolvedGroups.map((group) => {
+          const ukuran = parseUkuranBA(group.ukuranCairan, group.ukuranAir);
+          return {
+            BABongkarId: resultBA.id,
+            tangkiId: group.tangkiId,
+            ukuranCairan: ukuran.parsedUkuranCairan,
+            ukuranAir: ukuran.parsedUkuranAir,
+          };
+        }),
+        { transaction },
+      );
+
       await pengisianTanki.update(
-        { BAPenerimaanId: resultBA.id },
+        { BABongkarId: resultBA.id },
         {
           where: { id: { [Op.in]: pengisianIds } },
+          transaction,
+        },
+      );
+
+      await ujiLabK3S.update(
+        { BABongkarId: resultBA.id },
+        {
+          where: { id: { [Op.in]: ujiLabs.map((item) => item.id) } },
           transaction,
         },
       );
@@ -642,73 +1237,74 @@ module.exports = {
 
       const io = req.app.get("socketio");
       await notifyDashboardChange(io, {
-        type: "baPenerimaan:created",
-        title: "BA Penerimaan",
-        description: `BA Penerimaan dibuat untuk ${pengisianIds.length} pengisian tanki`,
-        entity: "BAPenerimaan",
+        type: "baBongkar:created",
+        title: "BA Bongkar",
+        description: `BA Bongkar dibuat untuk ${resolvedGroups.length} tanki (${pengisianIds.length} pengisian)`,
+        entity: "BABongkar",
         entityId: resultBA.id,
       });
 
-      const ukuranDoc = buildUkuranDoc(ukuran);
-      const data = buildBAPenerimaanRows(pengisianList, ukuranDoc);
-      const buffer = generateBAPenerimaanBuffer(tanggal, data);
-      const outputFileName = `BA_Penerimaan_${Date.now()}.docx`;
+      const ukuranLookup = buildUkuranLookup(resultBA, resolvedGroups);
+      const data = buildBABongkarRows(pengisianList, ukuranLookup);
+      const buffer = generateBABongkarBuffer(tanggal, data);
+      const outputFileName = `BA_Bongkar_${Date.now()}.docx`;
 
       sendDocxDownload(res, buffer, outputFileName);
     } catch (err) {
       if (!committed) {
         await transaction.rollback();
       }
-      console.error("Error membuat BA Penerimaan:", err);
+      console.error("Error membuat BA Bongkar:", err);
       return res.status(500).json({
-        message: err.message || "Gagal membuat BA Penerimaan",
+        message: err.message || "Gagal membuat BA Bongkar",
       });
     }
   },
 
-  cetakBAPenerimaan: async (req, res) => {
+  cetakBABongkar: async (req, res) => {
     try {
-      const { BAPenerimaanId } = req.body;
+      const { BABongkarId } = req.body;
 
-      if (!BAPenerimaanId) {
+      if (!BABongkarId) {
         return res
           .status(400)
-          .json({ message: "ID BA Penerimaan wajib diisi" });
+          .json({ message: "ID BA Bongkar wajib diisi" });
       }
 
-      const baId = parseInt(BAPenerimaanId, 10);
-      const dataBA = await BAPenerimaan.findByPk(baId);
+      const baId = parseInt(BABongkarId, 10);
+      const dataBA = await BABongkar.findByPk(baId);
 
       if (!dataBA) {
         return res
           .status(404)
-          .json({ message: "BA Penerimaan tidak ditemukan" });
+          .json({ message: "BA Bongkar tidak ditemukan" });
       }
 
       const pengisianList = await pengisianTanki.findAll({
-        where: { BAPenerimaanId: baId },
+        where: { BABongkarId: baId },
         include: pengisianIncludeForBA,
         order: [["id", "ASC"]],
       });
 
       if (!pengisianList.length) {
         return res.status(404).json({
-          message: "Data pengisian tanki untuk BA Penerimaan tidak ditemukan",
+          message: "Data pengisian tanki untuk BA Bongkar tidak ditemukan",
         });
       }
 
-      const ukuranDoc = buildUkuranDoc(
-        parseUkuranBA(dataBA.ukuranCairan, dataBA.ukuranAir),
-      );
-      const data = buildBAPenerimaanRows(pengisianList, ukuranDoc);
-      const buffer = generateBAPenerimaanBuffer(dataBA.tanggal, data);
-      const outputFileName = `BA_Penerimaan_${baId}_${Date.now()}.docx`;
+      const tankiDetails = await BABongkarTanki.findAll({
+        where: { BABongkarId: baId },
+      });
+      const ukuranLookup = buildUkuranLookup(dataBA, tankiDetails);
+      const data = buildBABongkarRows(pengisianList, ukuranLookup);
+      const buffer = generateBABongkarBuffer(dataBA.tanggal, data);
+      const outputFileName = `BA_Bongkar_${baId}_${Date.now()}.docx`;
 
       sendDocxDownload(res, buffer, outputFileName);
     } catch (err) {
-      console.error("Error cetak ulang BA Penerimaan:", err);
+      console.error("Error cetak ulang BA Bongkar:", err);
       return res.status(500).json({
-        message: err.message || "Gagal mencetak ulang BA Penerimaan",
+        message: err.message || "Gagal mencetak ulang BA Bongkar",
       });
     }
   },
@@ -729,6 +1325,7 @@ module.exports = {
           { model: tanki },
           {
             model: konfirmasiPenerimaan,
+            through: { attributes: [] },
             include: [
               {
                 model: suratJalan,
@@ -914,11 +1511,11 @@ module.exports = {
         });
       }
 
-      if (existing.BAPenerimaanId) {
+      if (existing.BABongkarId) {
         await transaction.rollback();
         return res.status(400).json({
           message:
-            "Pengisian tanki sudah memiliki BA Penerimaan dan tidak dapat diubah",
+            "Pengisian tanki sudah memiliki BA Bongkar dan tidak dapat diubah",
         });
       }
 
@@ -950,20 +1547,9 @@ module.exports = {
         { where: { id }, transaction },
       );
 
-      await konfirmasiPenerimaan.update(
-        { pengisianTankiId: null },
-        { where: { pengisianTankiId: id }, transaction },
-      );
-
-      if (ids?.length) {
-        await konfirmasiPenerimaan.update(
-          { pengisianTankiId: id },
-          {
-            where: { id: { [Op.in]: ids } },
-            transaction,
-          },
-        );
-      }
+      await existing.setKonfirmasiPenerimaans(parseKonfirmasiIds(ids), {
+        transaction,
+      });
 
       await transaction.commit();
 
@@ -1002,11 +1588,11 @@ module.exports = {
         });
       }
 
-      if (existing.BAPenerimaanId) {
+      if (existing.BABongkarId) {
         await transaction.rollback();
         return res.status(400).json({
           message:
-            "Pengisian tanki sudah memiliki BA Penerimaan dan tidak dapat dihapus",
+            "Pengisian tanki sudah memiliki BA Bongkar dan tidak dapat dihapus",
         });
       }
 
@@ -1018,11 +1604,7 @@ module.exports = {
         });
       }
 
-      await konfirmasiPenerimaan.update(
-        { pengisianTankiId: null },
-        { where: { pengisianTankiId: id }, transaction },
-      );
-
+      await existing.setKonfirmasiPenerimaans([], { transaction });
       await pengisianTanki.destroy({ where: { id }, transaction });
       await transaction.commit();
 
@@ -1047,6 +1629,255 @@ module.exports = {
     }
   },
 
+  getStokOpname: async (req, res) => {
+    const { startDate, endDate, tangkiId } = req.query;
+
+    try {
+      const parsedTangkiId = tangkiId ? parseInt(tangkiId, 10) : null;
+
+      const buildDateRange = () => {
+        const range = {};
+        if (startDate) {
+          range[Op.gte] = new Date(startDate);
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          range[Op.lte] = end;
+        }
+        return Object.keys(range).length ? range : null;
+      };
+
+      const toDateKey = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toISOString().split("T")[0];
+      };
+
+      const pengisianWhere = {};
+      const pengisianDateRange = buildDateRange();
+      if (pengisianDateRange) {
+        pengisianWhere.tanggal = pengisianDateRange;
+      }
+      if (parsedTangkiId) {
+        pengisianWhere.tangkiId = parsedTangkiId;
+      }
+
+      const baWhere = {};
+      const baDateRange = buildDateRange();
+      if (baDateRange) {
+        baWhere.tanggal = baDateRange;
+      }
+
+      const SATUAN = "barrel";
+
+      const calcKeluarBarrel = (ukuranCairan, ukuranAir, factorTank) => {
+        const ukuran = parseUkuranBA(ukuranCairan, ukuranAir);
+        const factor = Number(factorTank);
+        if (
+          ukuran.uMin === null ||
+          Number.isNaN(factor) ||
+          factor <= 0
+        ) {
+          return 0;
+        }
+        return roundBarrelVolume(ukuran.uMin * factor);
+      };
+
+      const pengisianInclude = [
+        { model: tanki },
+        {
+          model: BABongkar,
+          include: [{ model: BABongkarTanki }],
+        },
+        { model: satuanVolume },
+      ];
+
+      const baPengisianWhere = parsedTangkiId
+        ? { tangkiId: parsedTangkiId }
+        : undefined;
+
+      const [pengisianList, baList] = await Promise.all([
+        pengisianTanki.findAll({
+          where: pengisianWhere,
+          include: pengisianInclude,
+          order: [
+            ["tanggal", "ASC"],
+            ["id", "ASC"],
+          ],
+        }),
+        BABongkar.findAll({
+          where: baWhere,
+          include: [
+            {
+              model: pengisianTanki,
+              where: baPengisianWhere,
+              required: Boolean(parsedTangkiId),
+              include: [{ model: tanki }],
+            },
+            { model: BABongkarTanki },
+          ],
+          order: [
+            ["tanggal", "ASC"],
+            ["id", "ASC"],
+          ],
+        }),
+      ]);
+
+      const rowMap = new Map();
+
+      const getOrCreateRow = (dateKey, tangkiIdValue, tankInfo = {}) => {
+        const key = `${dateKey}|${tangkiIdValue}`;
+        if (!rowMap.has(key)) {
+          rowMap.set(key, {
+            tanggal: dateKey,
+            tangkiId: tangkiIdValue,
+            kode: tankInfo.kode || "-",
+            satuan: SATUAN,
+            masuk: 0,
+            keluar: 0,
+            jumlahMasuk: 0,
+            jumlahKeluar: 0,
+            ukuranCairan: null,
+            ukuranAir: null,
+            baIds: [],
+            detailMasuk: [],
+            detailKeluar: [],
+          });
+        }
+
+        const row = rowMap.get(key);
+        if ((!row.kode || row.kode === "-") && tankInfo.kode) {
+          row.kode = tankInfo.kode;
+        }
+        row.satuan = SATUAN;
+        return row;
+      };
+
+      for (const item of pengisianList) {
+        const dateKey = toDateKey(item.tanggal || item.createdAt);
+        const tangkiIdValue = item.tangkiId ?? item.tanki?.id;
+        if (!dateKey || !tangkiIdValue) continue;
+
+        const row = getOrCreateRow(dateKey, tangkiIdValue, {
+          kode: item.tanki?.kode,
+        });
+
+        const satuanAsli = item.satuanVolume?.satuan || "Barrel";
+        const grossBarrel = roundBarrelVolume(
+          convertVolumeToBarrel(item.gross, satuanAsli),
+        );
+        const netBarrel = roundBarrelVolume(
+          convertVolumeToBarrel(item.net, satuanAsli),
+        );
+
+        row.masuk += grossBarrel;
+        row.jumlahMasuk += 1;
+        row.detailMasuk.push({
+          id: item.id,
+          gross: item.gross,
+          net: item.net,
+          grossBarrel,
+          netBarrel,
+          satuan: satuanAsli,
+          tanggal: item.tanggal || item.createdAt,
+          BABongkarId: item.BABongkarId,
+        });
+      }
+
+      for (const ba of baList) {
+        const dateKey = toDateKey(ba.tanggal);
+        if (!dateKey) continue;
+
+        const byTank = new Map();
+        for (const item of ba.pengisianTankis || []) {
+          const tangkiIdValue = item.tangkiId ?? item.tanki?.id;
+          if (!tangkiIdValue) continue;
+
+          if (!byTank.has(tangkiIdValue)) {
+            byTank.set(tangkiIdValue, {
+              kode: item.tanki?.kode,
+              factorTank: item.tanki?.factorTank,
+              pengisianIds: [],
+            });
+          }
+
+          const group = byTank.get(tangkiIdValue);
+          group.pengisianIds.push(item.id);
+        }
+
+        for (const [tangkiIdValue, group] of byTank.entries()) {
+          const row = getOrCreateRow(dateKey, tangkiIdValue, {
+            kode: group.kode,
+          });
+
+          const ukuranDetail = (ba.BABongkarTankis || []).find(
+            (detail) => detail.tangkiId === tangkiIdValue,
+          );
+          const ukuranCairan =
+            ukuranDetail?.ukuranCairan ?? ba.ukuranCairan;
+          const ukuranAir = ukuranDetail?.ukuranAir ?? ba.ukuranAir;
+
+          const volumeKeluar = calcKeluarBarrel(
+            ukuranCairan,
+            ukuranAir,
+            group.factorTank,
+          );
+
+          row.keluar += volumeKeluar;
+          row.jumlahKeluar += 1;
+
+          if (row.ukuranCairan === null && ukuranCairan !== null) {
+            row.ukuranCairan = ukuranCairan;
+          }
+          if (row.ukuranAir === null && ukuranAir !== null) {
+            row.ukuranAir = ukuranAir;
+          }
+
+          if (!row.baIds.includes(ba.id)) {
+            row.baIds.push(ba.id);
+          }
+
+          row.detailKeluar.push({
+            baId: ba.id,
+            ukuranCairan,
+            ukuranAir,
+            volume: volumeKeluar,
+            pengisianIds: group.pengisianIds,
+          });
+        }
+      }
+
+      const result = Array.from(rowMap.values())
+        .map((row) => {
+          const masuk = roundBarrelVolume(row.masuk);
+          const keluar = roundBarrelVolume(row.keluar);
+          return {
+            ...row,
+            masuk,
+            keluar,
+            selisih: roundBarrelVolume(masuk - keluar),
+          };
+        })
+        .sort((a, b) => {
+          if (a.tanggal !== b.tanggal) {
+            return b.tanggal.localeCompare(a.tanggal);
+          }
+          return String(a.kode).localeCompare(String(b.kode), "id");
+        });
+
+      return res.status(200).json({
+        success: true,
+        result,
+        totalRows: result.length,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   getTankiMonitoring: async (req, res) => {
     try {
       const result = await tanki.findAll({
@@ -1054,10 +1885,11 @@ module.exports = {
           {
             model: daftarUnitKerja,
           },
+          { model: satuanVolume },
           {
             model: pengisianTanki,
             where: {
-              BAPenerimaanId: null,
+              BABongkarId: null,
             },
             required: true,
           },

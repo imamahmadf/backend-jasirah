@@ -9,16 +9,27 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       this.belongsTo(models.daftarUnitKerja, { foreignKey: "unitKerjaId" });
+      this.belongsTo(models.satuanVolume, { foreignKey: "satuanVolumeId" });
+      this.belongsTo(models.stasiunPengumpulMinyak, {
+        foreignKey: "stasiunPengumpulMinyakId",
+      });
       this.hasMany(models.pengisianTanki, { foreignKey: "tangkiId" });
+      this.hasMany(models.BABongkarTanki, { foreignKey: "tangkiId" });
+      this.hasMany(models.ujiLabK3S, {
+        foreignKey: "tangkiId",
+        as: "ujiLabK3S",
+      });
     }
   }
   tanki.init(
     {
       unitKerjaId: DataTypes.INTEGER,
+      stasiunPengumpulMinyakId: DataTypes.INTEGER,
       kode: DataTypes.STRING,
       foto: DataTypes.STRING,
       kapasitas: DataTypes.INTEGER,
-      factorTank: DataTypes.INTEGER,
+      factorTank: DataTypes.DECIMAL(10, 3),
+      satuanVolumeId: DataTypes.INTEGER,
     },
     {
       sequelize,

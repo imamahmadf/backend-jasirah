@@ -8,11 +8,13 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      this.hasMany(models.konfirmasiPenerimaan, {
+      this.belongsToMany(models.konfirmasiPenerimaan, {
+        through: "pengisianTankiKonfirmasis",
         foreignKey: "pengisianTankiId",
+        otherKey: "konfirmasiPenerimaanId",
       });
       this.belongsTo(models.tanki, { foreignKey: "tangkiId" });
-      this.belongsTo(models.BAPenerimaan, { foreignKey: "BAPenerimaanId" });
+      this.belongsTo(models.BABongkar, { foreignKey: "BABongkarId" });
       this.belongsTo(models.satuanVolume, { foreignKey: "satuanVolumeId" });
     }
   }
@@ -28,7 +30,7 @@ module.exports = (sequelize, DataTypes) => {
       BSW: DataTypes.INTEGER,
       catatan: DataTypes.STRING,
       saksi: DataTypes.STRING,
-      BAPenerimaanId: DataTypes.INTEGER,
+      BABongkarId: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
       nomorSurat: DataTypes.STRING,
       satuanVolumeId: DataTypes.INTEGER,

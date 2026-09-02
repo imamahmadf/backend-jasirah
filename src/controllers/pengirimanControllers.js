@@ -4,6 +4,7 @@ const {
   transportir,
   supir,
   daftarUnitKerja,
+  stasiunPengumpulMinyak,
   statusSuratJalan,
   konfirmasiPenerimaan,
   nomorSuratKPBPN,
@@ -11,6 +12,11 @@ const {
   jenisMitra,
   satuanVolume,
   pegawai,
+  sumurMinyak,
+  produksiSumur,
+  pengisianTanki,
+  tanki,
+  sequelize,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -32,6 +38,21 @@ const toTimeString = (time) => {
   return null;
 };
 
+const LITER_PER_BARREL = 158.987;
+const LITER_PER_DRUM = 200;
+
+const convertVolumeToLiter = (volume, satuanName) => {
+  const value = Number(volume);
+  if (Number.isNaN(value)) return 0;
+
+  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+  if (satuan === "barrel") return value * LITER_PER_BARREL;
+  if (satuan === "liter") return value;
+  if (satuan === "drum") return value * LITER_PER_DRUM;
+
+  return value;
+};
+
 module.exports = {
   getSuratJalan: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
@@ -41,6 +62,9 @@ module.exports = {
     const transportirId = parseInt(req.query.transportirId);
     const supirId = parseInt(req.query.supirId);
     const unitKerjaId = parseInt(req.query.unitKerjaId);
+    const stasiunPengumpulMinyakId = parseInt(
+      req.query.stasiunPengumpulMinyakId,
+    );
     const statusSuratJalanId = parseInt(req.query.statusSuratJalanId);
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -57,6 +81,9 @@ module.exports = {
 
     if (unitKerjaId) {
       whereCondition.unitKerjaId = unitKerjaId;
+    }
+    if (stasiunPengumpulMinyakId) {
+      whereCondition.stasiunPengumpulMinyakId = stasiunPengumpulMinyakId;
     }
     if (supirId) {
       whereCondition.supirId = supirId;
@@ -93,6 +120,7 @@ module.exports = {
           { model: mitra },
           { model: transportir },
           { model: daftarUnitKerja },
+          { model: stasiunPengumpulMinyak },
           { model: supir },
           { model: statusSuratJalan },
           { model: satuanVolume },
@@ -127,12 +155,16 @@ module.exports = {
       });
       const resultStatusSuratJalan = await statusSuratJalan.findAll({});
       const resultSatuanVolume = await satuanVolume.findAll({});
+      const resultStasiunPengumpulMinyak = await stasiunPengumpulMinyak.findAll(
+        { order: [["nama", "ASC"]] },
+      );
 
       return res.status(200).json({
         resultMitra,
         resultTransportir,
         resultStatusSuratJalan,
         resultSatuanVolume,
+        resultStasiunPengumpulMinyak,
       });
     } catch (err) {
       console.log(err);
@@ -148,6 +180,7 @@ module.exports = {
       mitraId,
       transportirId,
       unitKerjaId,
+      stasiunPengumpulMinyakId,
       supirId,
       jamDatang,
       jamPergi,
@@ -157,7 +190,7 @@ module.exports = {
       !tanggal ||
       !mitraId ||
       !transportirId ||
-      !unitKerjaId ||
+      !stasiunPengumpulMinyakId ||
       !supirId ||
       volume === undefined ||
       volume === "" ||
@@ -181,7 +214,8 @@ module.exports = {
         jamPergi: jamPergi,
         mitraId: parsedMitraId,
         transportirId: parsedTransportirId,
-        unitKerjaId: parseInt(unitKerjaId, 10),
+        unitKerjaId: unitKerjaId ? parseInt(unitKerjaId, 10) : null,
+        stasiunPengumpulMinyakId: parseInt(stasiunPengumpulMinyakId, 10),
         supirId: parsedSupirId,
         statusSuratJalanId: 1,
       });
@@ -281,6 +315,7 @@ module.exports = {
             include: [{ model: jenisTransportir }, { model: satuanVolume }],
           },
           { model: daftarUnitKerja },
+          { model: stasiunPengumpulMinyak },
           { model: supir },
           { model: statusSuratJalan },
           { model: satuanVolume },
@@ -425,6 +460,11 @@ module.exports = {
             model: suratJalan,
             include: [{ model: mitra }, { model: satuanVolume }],
           },
+          {
+            model: pengisianTanki,
+            through: { attributes: [] },
+            include: [{ model: tanki, attributes: ["id", "kode"] }],
+          },
         ],
         order: [["createdAt", "DESC"]],
       });
@@ -440,14 +480,27 @@ module.exports = {
   },
 
   addKonfirmasiPenerimaan: async (req, res) => {
-    const { suratJalanId, tanggal, volume, pegawaiId, catatan } = req.body;
+    const { suratJalanId, tanggal, volume, pegawaiId, catatan, api, BSNW } =
+      req.body;
+
+    const parseDecimalInput = (value) => {
+      if (value === undefined || value === null || value === "") return null;
+      const normalized = String(value).trim().replace(",", ".");
+      const num = parseFloat(normalized);
+      return Number.isNaN(num) ? null : num;
+    };
+
+    const apiValue = parseDecimalInput(api);
+    const bsnwValue = parseDecimalInput(BSNW);
 
     if (
       !suratJalanId ||
       !tanggal ||
       volume === undefined ||
       volume === "" ||
-      !pegawaiId
+      !pegawaiId ||
+      apiValue === null ||
+      bsnwValue === null
     ) {
       return res.status(400).json({ error: "Semua field wajib diisi" });
     }
@@ -474,6 +527,8 @@ module.exports = {
         volume: parseInt(volume, 10),
         pegawaiId: parseInt(pegawaiId, 10),
         catatan: catatan || null,
+        api: apiValue,
+        BSNW: bsnwValue,
       });
 
       await suratJalan.update(
@@ -495,6 +550,151 @@ module.exports = {
         message: "Konfirmasi penerimaan berhasil disimpan",
         result,
       });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
+  getProduksiSumurBySuratJalan: async (req, res) => {
+    const suratJalanId = parseInt(req.params.suratJalanId, 10);
+
+    if (!suratJalanId) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    try {
+      const suratJalanData = await suratJalan.findByPk(suratJalanId, {
+        include: [{ model: satuanVolume }],
+      });
+
+      if (!suratJalanData) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      const [resultSumurMinyak, resultProduksi, resultSatuanVolume] =
+        await Promise.all([
+        sumurMinyak.findAll({
+          where: { mitraId: suratJalanData.mitraId },
+          order: [["nama", "ASC"]],
+        }),
+        produksiSumur.findAll({
+          where: { suratJalanId },
+          include: [{ model: sumurMinyak }, { model: satuanVolume }],
+        }),
+        satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        suratJalan: suratJalanData,
+        resultSumurMinyak,
+        resultProduksi,
+        resultSatuanVolume,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
+  saveProduksiSumur: async (req, res) => {
+    const { suratJalanId, items, satuanVolumeId } = req.body;
+
+    if (!suratJalanId || !Array.isArray(items) || !satuanVolumeId) {
+      return res.status(400).json({
+        error: "Data produksi, satuan volume, dan surat jalan wajib diisi",
+      });
+    }
+
+    const parsedSuratJalanId = parseInt(suratJalanId, 10);
+    const parsedSatuanVolumeId = parseInt(satuanVolumeId, 10);
+
+    try {
+      const [suratJalanData, satuanProduksi] = await Promise.all([
+          suratJalan.findByPk(parsedSuratJalanId, {
+            include: [{ model: satuanVolume }],
+          }),
+          satuanVolume.findByPk(parsedSatuanVolumeId),
+        ]);
+
+      if (!suratJalanData) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      if (!satuanProduksi) {
+        return res.status(400).json({ error: "Satuan volume tidak valid" });
+      }
+
+      const normalizedItems = items
+        .map((item) => ({
+          sumurMinyakId: parseInt(item.sumurMinyakId, 10),
+          produksi: parseInt(item.produksi, 10) || 0,
+        }))
+        .filter((item) => item.sumurMinyakId && item.produksi > 0);
+
+      const totalProduksiLiter = normalizedItems.reduce(
+        (sum, item) =>
+          sum + convertVolumeToLiter(item.produksi, satuanProduksi.satuan),
+        0,
+      );
+
+      const volumeSuratJalanLiter = convertVolumeToLiter(
+        suratJalanData.volume,
+        suratJalanData.satuanVolume?.satuan || "barrel",
+      );
+
+      if (Math.abs(totalProduksiLiter - volumeSuratJalanLiter) >= 0.001) {
+        return res.status(400).json({
+          error: `Total produksi harus sama dengan volume surat jalan (${suratJalanData.volume} ${suratJalanData.satuanVolume?.satuan || ""})`,
+        });
+      }
+
+      const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
+      const validSumur = await sumurMinyak.findAll({
+        where: {
+          id: sumurIds,
+          mitraId: suratJalanData.mitraId,
+        },
+      });
+
+      if (validSumur.length !== sumurIds.length) {
+        return res.status(400).json({
+          error: "Terdapat sumur minyak yang tidak valid untuk mitra ini",
+        });
+      }
+
+      const transaction = await sequelize.transaction();
+
+      try {
+        await produksiSumur.destroy({
+          where: { suratJalanId: parsedSuratJalanId },
+          transaction,
+        });
+
+        const created = await produksiSumur.bulkCreate(
+          normalizedItems.map((item) => ({
+            suratJalanId: parsedSuratJalanId,
+            sumurMinyakId: item.sumurMinyakId,
+            produksi: item.produksi,
+            satuanVolumeId: parsedSatuanVolumeId,
+            tanggal: suratJalanData.tanggal,
+          })),
+          { transaction },
+        );
+
+        await transaction.commit();
+
+        return res.status(200).json({
+          success: true,
+          message: "Produksi sumur berhasil disimpan",
+          result: created,
+          totalProduksiLiter,
+        });
+      } catch (txErr) {
+        await transaction.rollback();
+        throw txErr;
+      }
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });

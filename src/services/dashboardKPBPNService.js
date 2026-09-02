@@ -9,7 +9,10 @@ const {
   konfirmasiPenerimaan,
   daftarUnitKerja,
   satuanVolume,
+  sequelize,
 } = require("../models");
+
+const { Op } = require("sequelize");
 
 const suratJalanInclude = [
   { model: mitra },
@@ -21,10 +24,14 @@ const suratJalanInclude = [
 ];
 
 const pengisianInclude = [
-  { model: tanki, include: [{ model: daftarUnitKerja }] },
+  {
+    model: tanki,
+    include: [{ model: daftarUnitKerja }, { model: satuanVolume }],
+  },
   { model: satuanVolume },
   {
     model: konfirmasiPenerimaan,
+    through: { attributes: [] },
     include: [
       {
         model: suratJalan,
@@ -55,7 +62,15 @@ const getDashboardData = async () => {
     suratJalan.count(),
     tanki.count(),
     pengisianTanki.count(),
-    konfirmasiPenerimaan.count({ where: { pengisianTankiId: null } }),
+    konfirmasiPenerimaan.count({
+      where: {
+        id: {
+          [Op.notIn]: sequelize.literal(
+            "(SELECT konfirmasiPenerimaanId FROM pengisianTankiKonfirmasis)",
+          ),
+        },
+      },
+    }),
     suratJalan.findAll({
       attributes: [
         "statusSuratJalanId",
@@ -98,7 +113,7 @@ const getDashboardData = async () => {
         { model: daftarUnitKerja },
         {
           model: pengisianTanki,
-          where: { BAPenerimaanId: null },
+          where: { BABongkarId: null },
           required: true,
         },
       ],

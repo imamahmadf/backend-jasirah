@@ -126,7 +126,10 @@ function buildSuratJalanRenderData(record) {
     volume: String(record.volume ?? "-"),
     namaSupir: record.supir?.nama || "-",
     teleponSupir: record.supir?.nik || "-",
-    tujuan: record.daftarUnitKerja?.unitKerja || "-",
+    tujuan:
+      record.stasiunPengumpulMinyak?.nama ||
+      record.daftarUnitKerja?.unitKerja ||
+      "-",
     jamDatang: formatTanggalJamIndonesia(record?.jamDatang),
     jamPergi: formatTanggalJamIndonesia(record?.jamPergi),
     jenisTransportir: record?.jenisTransportir?.jenis || "-",

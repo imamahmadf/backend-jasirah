@@ -57,6 +57,7 @@ const {
   pengirimanRouter,
   tankiRouter,
   sumurMinyakRouter,
+  stasiunPengumpulMinyakRouter,
   userKPBPNRouter,
   dashboardRouter,
   templateKPBPNRouter,
@@ -213,6 +214,7 @@ app.use("/api/mitra", mitraRouter);
 app.use("/api/pengiriman", pengirimanRouter);
 app.use("/api/tanki", tankiRouter);
 app.use("/api/sumur-minyak", sumurMinyakRouter);
+app.use("/api/stasiun-pengumpul-minyak", stasiunPengumpulMinyakRouter);
 app.use("/api/user-kpbpn", userKPBPNRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/template-kpbpn", templateKPBPNRouter);
