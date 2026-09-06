@@ -5,15 +5,56 @@ const {
   produksiSumur,
   suratJalan,
   satuanVolume,
+  userKPBPN,
 } = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+
+const ROLE_SUPER_ADMIN = 1;
+const ROLE_ADMIN = 2;
+
+const resolveMitraScope = async (req) => {
+  const roleIds = req.user?.roleIds || [];
+  const isAdmin =
+    roleIds.includes(ROLE_SUPER_ADMIN) || roleIds.includes(ROLE_ADMIN);
+
+  if (isAdmin) {
+    return { isAdmin: true, mitraId: null };
+  }
+
+  if (!req.user?.id) {
+    return { isAdmin: false, mitraId: null };
+  }
+
+  const currentUser = await userKPBPN.findByPk(req.user.id, {
+    attributes: ["id", "mitraId"],
+  });
+
+  return { isAdmin: false, mitraId: currentUser?.mitraId || null };
+};
+
+const canAccessSumur = (sumur, scope) => {
+  if (scope.isAdmin) return true;
+  if (!scope.mitraId || !sumur) return false;
+  return Number(sumur.mitraId) === Number(scope.mitraId);
+};
+
+const parseOptionalInt = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const num = parseInt(value, 10);
+  return Number.isFinite(num) ? num : null;
+};
+
+const parseOptionalString = (value) => {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+};
 
 module.exports = {
   getSumurMinyak: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 50;
     const offset = limit * page;
-    const mitraId = parseInt(req.query.mitraId);
     const statusVerifikasi = req.query.statusVerifikasi;
     const search = req.query.search?.trim();
     const allowedSortBy = [
@@ -33,9 +74,26 @@ module.exports = {
 
     const whereCondition = {};
 
-    if (mitraId) {
-      whereCondition.mitraId = mitraId;
-    }
+    try {
+      const scope = await resolveMitraScope(req);
+      if (!scope.isAdmin && !scope.mitraId) {
+        return res.status(200).json({
+          success: true,
+          result: [],
+          page,
+          limit,
+          totalRows: 0,
+          totalPage: 0,
+        });
+      }
+
+      const mitraId = scope.isAdmin
+        ? parseInt(req.query.mitraId)
+        : scope.mitraId;
+
+      if (mitraId) {
+        whereCondition.mitraId = mitraId;
+      }
     if (
       statusVerifikasi &&
       ["sudah", "belum", "tidak"].includes(statusVerifikasi)
@@ -50,7 +108,6 @@ module.exports = {
       ];
     }
 
-    try {
       const result = await sumurMinyak.findAll({
         where: whereCondition,
         limit,
@@ -88,6 +145,13 @@ module.exports = {
 
       if (!result) {
         return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(result, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
       }
 
       return res.status(200).json({ success: true, result });
@@ -138,6 +202,13 @@ module.exports = {
 
       if (!sumurData) {
         return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(sumurData, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
       }
 
       const result = await produksiSumur.findAll({
@@ -191,7 +262,30 @@ module.exports = {
         latitude,
         alamat,
         produksiHarian,
+        area,
+        operasional,
+        lingkungan,
+        penyaluran,
+        statusKepemilikan,
+        tingkatProduksi,
+        namaPemilikLahan,
+        namaPemilikSumur,
+        kontakPemilikLahan,
+        kontakPemilikSumur,
       } = req.body;
+
+      const scope = await resolveMitraScope(req);
+      const assignedMitraId = scope.isAdmin
+        ? mitraId
+          ? parseInt(mitraId)
+          : null
+        : scope.mitraId;
+
+      if (!scope.isAdmin && !assignedMitraId) {
+        return res
+          .status(403)
+          .json({ error: "Akun mitra belum terhubung ke data mitra" });
+      }
 
       const filePath = "sumur-minyak";
       let foto = null;
@@ -202,7 +296,7 @@ module.exports = {
 
       const result = await sumurMinyak.create({
         nama,
-        mitraId: mitraId ? parseInt(mitraId) : null,
+        mitraId: assignedMitraId,
         foto,
         nomor,
         statusVerifikasi: statusVerifikasi || "belum",
@@ -211,6 +305,16 @@ module.exports = {
         latitude: latitude ? parseFloat(latitude) : null,
         alamat,
         produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
+        area: parseOptionalInt(area),
+        operasional: parseOptionalInt(operasional),
+        lingkungan: parseOptionalInt(lingkungan),
+        penyaluran: parseOptionalInt(penyaluran),
+        statusKepemilikan: parseOptionalInt(statusKepemilikan),
+        tingkatProduksi: parseOptionalInt(tingkatProduksi),
+        namaPemilikLahan: parseOptionalString(namaPemilikLahan),
+        namaPemilikSumur: parseOptionalString(namaPemilikSumur),
+        kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
+        kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
       });
 
       const io = req.app.get("socketio");
@@ -242,12 +346,35 @@ module.exports = {
         latitude,
         alamat,
         produksiHarian,
+        area,
+        operasional,
+        lingkungan,
+        penyaluran,
+        statusKepemilikan,
+        tingkatProduksi,
+        namaPemilikLahan,
+        namaPemilikSumur,
+        kontakPemilikLahan,
+        kontakPemilikSumur,
       } = req.body;
 
       const existing = await sumurMinyak.findByPk(id);
       if (!existing) {
         return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
       }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(existing, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
+      }
+
+      const assignedMitraId = scope.isAdmin
+        ? mitraId
+          ? parseInt(mitraId)
+          : null
+        : scope.mitraId;
 
       const filePath = "sumur-minyak";
       let foto = existing.foto;
@@ -258,7 +385,7 @@ module.exports = {
       await sumurMinyak.update(
         {
           nama,
-          mitraId: mitraId ? parseInt(mitraId) : null,
+          mitraId: assignedMitraId,
           foto,
           nomor,
           statusVerifikasi,
@@ -267,6 +394,16 @@ module.exports = {
           latitude: latitude ? parseFloat(latitude) : null,
           alamat,
           produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
+          area: parseOptionalInt(area),
+          operasional: parseOptionalInt(operasional),
+          lingkungan: parseOptionalInt(lingkungan),
+          penyaluran: parseOptionalInt(penyaluran),
+          statusKepemilikan: parseOptionalInt(statusKepemilikan),
+          tingkatProduksi: parseOptionalInt(tingkatProduksi),
+          namaPemilikLahan: parseOptionalString(namaPemilikLahan),
+          namaPemilikSumur: parseOptionalString(namaPemilikSumur),
+          kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
+          kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
         },
         { where: { id } },
       );
@@ -291,12 +428,109 @@ module.exports = {
     }
   },
 
+  updateKlasifikasiSumurMinyak: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        area,
+        operasional,
+        lingkungan,
+        penyaluran,
+        statusKepemilikan,
+        tingkatProduksi,
+      } = req.body;
+
+      const existing = await sumurMinyak.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(existing, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
+      }
+
+      await sumurMinyak.update(
+        {
+          area: parseOptionalInt(area),
+          operasional: parseOptionalInt(operasional),
+          lingkungan: parseOptionalInt(lingkungan),
+          penyaluran: parseOptionalInt(penyaluran),
+          statusKepemilikan: parseOptionalInt(statusKepemilikan),
+          tingkatProduksi: parseOptionalInt(tingkatProduksi),
+        },
+        { where: { id } },
+      );
+
+      const result = await sumurMinyak.findByPk(id, {
+        include: [{ model: mitra }],
+      });
+
+      return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  updatePemilikSumurMinyak: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        namaPemilikLahan,
+        namaPemilikSumur,
+        kontakPemilikLahan,
+        kontakPemilikSumur,
+      } = req.body;
+
+      const existing = await sumurMinyak.findByPk(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(existing, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
+      }
+
+      await sumurMinyak.update(
+        {
+          namaPemilikLahan: parseOptionalString(namaPemilikLahan),
+          namaPemilikSumur: parseOptionalString(namaPemilikSumur),
+          kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
+          kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
+        },
+        { where: { id } },
+      );
+
+      const result = await sumurMinyak.findByPk(id, {
+        include: [{ model: mitra }],
+      });
+
+      return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   deleteSumurMinyak: async (req, res) => {
     try {
       const { id } = req.params;
       const existing = await sumurMinyak.findByPk(id);
       if (!existing) {
         return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(existing, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
       }
 
       await sumurMinyak.destroy({ where: { id } });
