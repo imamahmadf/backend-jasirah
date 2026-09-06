@@ -27,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
       catatan: DataTypes.STRING,
       api: DataTypes.DECIMAL(10, 3),
       BSNW: DataTypes.DECIMAL(10, 3),
+      foto: DataTypes.STRING,
     },
     {
       sequelize,

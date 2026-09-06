@@ -58,9 +58,11 @@ const {
   tankiRouter,
   sumurMinyakRouter,
   stasiunPengumpulMinyakRouter,
+  asalMinyakRouter,
   userKPBPNRouter,
   dashboardRouter,
   templateKPBPNRouter,
+  stockOpnameTankiRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -215,9 +217,11 @@ app.use("/api/pengiriman", pengirimanRouter);
 app.use("/api/tanki", tankiRouter);
 app.use("/api/sumur-minyak", sumurMinyakRouter);
 app.use("/api/stasiun-pengumpul-minyak", stasiunPengumpulMinyakRouter);
+app.use("/api/asal-minyak", asalMinyakRouter);
 app.use("/api/user-kpbpn", userKPBPNRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/template-kpbpn", templateKPBPNRouter);
+app.use("/api/stock-opname", stockOpnameTankiRouter);
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);
 });

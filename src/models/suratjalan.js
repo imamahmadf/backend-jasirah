@@ -21,6 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.stasiunPengumpulMinyak, {
         foreignKey: "stasiunPengumpulMinyakId",
       });
+      this.belongsTo(models.asalMinyak, { foreignKey: "asalMinyakId" });
     }
   }
   suratJalan.init(
@@ -38,6 +39,7 @@ module.exports = (sequelize, DataTypes) => {
       verifikasi: DataTypes.STRING,
       satuanVolumeId: DataTypes.INTEGER,
       stasiunPengumpulMinyakId: DataTypes.INTEGER,
+      asalMinyakId: DataTypes.INTEGER,
     },
     {
       sequelize,

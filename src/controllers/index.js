@@ -45,9 +45,11 @@ const pengirimanControllers = require("./pengirimanControllers");
 const tankiControllers = require("./tankiControllers");
 const sumurMinyakControllers = require("./sumurMinyakControllers");
 const stasiunPengumpulMinyakControllers = require("./stasiunPengumpulMinyakControllers");
+const asalMinyakControllers = require("./asalMinyakControllers");
 
 const userKPBPNControllers = require("./userKPBPNControllers");
 const dashboardControllers = require("./DashboardControllers");
+const stockOpnameTankiControllers = require("./stockOpnameTankiControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -96,6 +98,8 @@ module.exports = {
   tankiControllers,
   sumurMinyakControllers,
   stasiunPengumpulMinyakControllers,
+  asalMinyakControllers,
   userKPBPNControllers,
   dashboardControllers,
+  stockOpnameTankiControllers,
 };

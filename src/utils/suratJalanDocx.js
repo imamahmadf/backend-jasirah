@@ -130,6 +130,11 @@ function buildSuratJalanRenderData(record) {
       record.stasiunPengumpulMinyak?.nama ||
       record.daftarUnitKerja?.unitKerja ||
       "-",
+    asalMinyak: record.asalMinyak
+      ? [record.asalMinyak.nomor, record.asalMinyak.asal]
+          .filter(Boolean)
+          .join(" - ") || "-"
+      : "-",
     jamDatang: formatTanggalJamIndonesia(record?.jamDatang),
     jamPergi: formatTanggalJamIndonesia(record?.jamPergi),
     jenisTransportir: record?.jenisTransportir?.jenis || "-",

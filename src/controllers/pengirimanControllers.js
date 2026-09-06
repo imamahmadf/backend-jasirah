@@ -5,6 +5,7 @@ const {
   supir,
   daftarUnitKerja,
   stasiunPengumpulMinyak,
+  asalMinyak,
   statusSuratJalan,
   konfirmasiPenerimaan,
   nomorSuratKPBPN,
@@ -16,6 +17,10 @@ const {
   produksiSumur,
   pengisianTanki,
   tanki,
+  BABongkar,
+  BABongkarTanki,
+  ujiLabK3S,
+  BAK3S,
   sequelize,
 } = require("../models");
 
@@ -26,9 +31,7 @@ const { buildSuratJalanDocxFromRecord } = require("../utils/suratJalanDocx");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
 const { sendMessage } = require("../services/waServices");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
-const {
-  emitNotifikasiSuratJalanDraft,
-} = require("./notifikasiControllers");
+const { emitNotifikasiSuratJalanDraft } = require("./notifikasiControllers");
 
 const toTimeString = (time) => {
   if (!time) return null;
@@ -45,7 +48,9 @@ const convertVolumeToLiter = (volume, satuanName) => {
   const value = Number(volume);
   if (Number.isNaN(value)) return 0;
 
-  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+  const satuan = String(satuanName || "barrel")
+    .trim()
+    .toLowerCase();
   if (satuan === "barrel") return value * LITER_PER_BARREL;
   if (satuan === "liter") return value;
   if (satuan === "drum") return value * LITER_PER_DRUM;
@@ -65,6 +70,7 @@ module.exports = {
     const stasiunPengumpulMinyakId = parseInt(
       req.query.stasiunPengumpulMinyakId,
     );
+    const asalMinyakId = parseInt(req.query.asalMinyakId);
     const statusSuratJalanId = parseInt(req.query.statusSuratJalanId);
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
@@ -84,6 +90,9 @@ module.exports = {
     }
     if (stasiunPengumpulMinyakId) {
       whereCondition.stasiunPengumpulMinyakId = stasiunPengumpulMinyakId;
+    }
+    if (asalMinyakId) {
+      whereCondition.asalMinyakId = asalMinyakId;
     }
     if (supirId) {
       whereCondition.supirId = supirId;
@@ -121,6 +130,7 @@ module.exports = {
           { model: transportir },
           { model: daftarUnitKerja },
           { model: stasiunPengumpulMinyak },
+          { model: asalMinyak },
           { model: supir },
           { model: statusSuratJalan },
           { model: satuanVolume },
@@ -158,6 +168,9 @@ module.exports = {
       const resultStasiunPengumpulMinyak = await stasiunPengumpulMinyak.findAll(
         { order: [["nama", "ASC"]] },
       );
+      const resultAsalMinyak = await asalMinyak.findAll({
+        order: [["nomor", "ASC"]],
+      });
 
       return res.status(200).json({
         resultMitra,
@@ -165,6 +178,7 @@ module.exports = {
         resultStatusSuratJalan,
         resultSatuanVolume,
         resultStasiunPengumpulMinyak,
+        resultAsalMinyak,
       });
     } catch (err) {
       console.log(err);
@@ -181,6 +195,7 @@ module.exports = {
       transportirId,
       unitKerjaId,
       stasiunPengumpulMinyakId,
+      asalMinyakId,
       supirId,
       jamDatang,
       jamPergi,
@@ -191,6 +206,7 @@ module.exports = {
       !mitraId ||
       !transportirId ||
       !stasiunPengumpulMinyakId ||
+      !asalMinyakId ||
       !supirId ||
       volume === undefined ||
       volume === "" ||
@@ -216,6 +232,7 @@ module.exports = {
         transportirId: parsedTransportirId,
         unitKerjaId: unitKerjaId ? parseInt(unitKerjaId, 10) : null,
         stasiunPengumpulMinyakId: parseInt(stasiunPengumpulMinyakId, 10),
+        asalMinyakId: parseInt(asalMinyakId, 10),
         supirId: parsedSupirId,
         statusSuratJalanId: 1,
       });
@@ -298,6 +315,115 @@ module.exports = {
     }
   },
 
+  editSuratJalan: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const {
+      nomor,
+      volume,
+      satuanVolumeId,
+      tanggal,
+      mitraId,
+      transportirId,
+      unitKerjaId,
+      stasiunPengumpulMinyakId,
+      asalMinyakId,
+      supirId,
+      jamDatang,
+      jamPergi,
+    } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    if (
+      !tanggal ||
+      !mitraId ||
+      !transportirId ||
+      !stasiunPengumpulMinyakId ||
+      !asalMinyakId ||
+      !supirId ||
+      volume === undefined ||
+      volume === "" ||
+      !satuanVolumeId
+    ) {
+      return res.status(400).json({ error: "Semua field wajib diisi" });
+    }
+
+    try {
+      const existing = await suratJalan.findByPk(id);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      if (existing.statusSuratJalanId === 3) {
+        return res.status(400).json({
+          error: "Surat jalan yang sudah dikonfirmasi tidak dapat diubah",
+        });
+      }
+
+      const parsedMitraId = parseInt(mitraId, 10);
+      const parsedTransportirId = parseInt(transportirId, 10);
+      const parsedSupirId = parseInt(supirId, 10);
+      const parsedSatuanVolumeId = parseInt(satuanVolumeId, 10);
+      const nomorBaru =
+        nomor === undefined || nomor === null
+          ? existing.nomor
+          : String(nomor).trim() || null;
+
+      if (nomorBaru) {
+        const nomorDipakai = await suratJalan.findOne({
+          where: {
+            nomor: nomorBaru,
+            id: { [Op.ne]: id },
+          },
+        });
+
+        if (nomorDipakai) {
+          return res.status(400).json({
+            error: "Nomor surat jalan sudah digunakan",
+          });
+        }
+      }
+
+      await existing.update({
+        nomor: nomorBaru,
+        volume: parseInt(volume, 10),
+        satuanVolumeId: parsedSatuanVolumeId,
+        tanggal: new Date(tanggal),
+        jamDatang: jamDatang || null,
+        jamPergi: jamPergi || null,
+        mitraId: parsedMitraId,
+        transportirId: parsedTransportirId,
+        unitKerjaId: unitKerjaId
+          ? parseInt(unitKerjaId, 10)
+          : existing.unitKerjaId,
+        stasiunPengumpulMinyakId: parseInt(stasiunPengumpulMinyakId, 10),
+        asalMinyakId: parseInt(asalMinyakId, 10),
+        supirId: parsedSupirId,
+      });
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "suratJalan:updated",
+        title: "Surat Jalan Diperbarui",
+        description: `Surat jalan ${nomorBaru || existing.nomor || `#${id}`} diperbarui`,
+        entity: "suratJalan",
+        entityId: id,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Surat jalan berhasil diperbarui",
+        result: existing,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   cetakSuratJalan: async (req, res) => {
     const id = parseInt(req.params.id, 10);
 
@@ -316,6 +442,7 @@ module.exports = {
           },
           { model: daftarUnitKerja },
           { model: stasiunPengumpulMinyak },
+          { model: asalMinyak },
           { model: supir },
           { model: statusSuratJalan },
           { model: satuanVolume },
@@ -384,7 +511,7 @@ module.exports = {
 
     try {
       const [dbSurat, dbMitra, dbNoSurat] = await Promise.all([
-        suratJalan.findByPk(id),
+        suratJalan.findByPk(id, { include: [{ model: asalMinyak }] }),
         mitra.findByPk(mitraId),
         nomorSuratKPBPN.findOne({ where: { id: 1 } }),
       ]);
@@ -395,12 +522,19 @@ module.exports = {
       if (!dbMitra) {
         return res.status(400).json({ error: "Mitra tidak ditemukan" });
       }
+      if (!dbSurat.asalMinyak?.nomor) {
+        return res.status(400).json({
+          error: "Asal minyak belum diisi pada surat jalan",
+        });
+      }
 
       const kodeMitra = dbMitra.kode;
       const nomorUrut = parseInt(dbNoSurat.nomorUrut) + 1;
+      const nomorAsalMinyak = String(dbSurat.asalMinyak.nomor).trim();
+      const nomorGabungan = `${nomorAsalMinyak}${nomorUrut.toString().padStart(3, "0")}`;
 
       const nomorBaru = dbNoSurat.nomor
-        .replace("NOMOR", nomorUrut.toString())
+        .replace("NOMOR", nomorGabungan)
         .replace("BULAN", getRomanMonth(new Date(dbSurat.tanggal)))
         .replace("TAHUN", "2026")
         .replace("KODE", kodeMitra);
@@ -521,6 +655,11 @@ module.exports = {
         });
       }
 
+      let foto = null;
+      if (req.file) {
+        foto = `/konfirmasi-penerimaan/${req.file.filename}`;
+      }
+
       const result = await konfirmasiPenerimaan.create({
         suratJalanId: parseInt(suratJalanId, 10),
         tanggal: new Date(tanggal),
@@ -529,6 +668,7 @@ module.exports = {
         catatan: catatan || null,
         api: apiValue,
         BSNW: bsnwValue,
+        foto,
       });
 
       await suratJalan.update(
@@ -574,16 +714,16 @@ module.exports = {
 
       const [resultSumurMinyak, resultProduksi, resultSatuanVolume] =
         await Promise.all([
-        sumurMinyak.findAll({
-          where: { mitraId: suratJalanData.mitraId },
-          order: [["nama", "ASC"]],
-        }),
-        produksiSumur.findAll({
-          where: { suratJalanId },
-          include: [{ model: sumurMinyak }, { model: satuanVolume }],
-        }),
-        satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
-      ]);
+          sumurMinyak.findAll({
+            where: { mitraId: suratJalanData.mitraId },
+            order: [["nama", "ASC"]],
+          }),
+          produksiSumur.findAll({
+            where: { suratJalanId },
+            include: [{ model: sumurMinyak }, { model: satuanVolume }],
+          }),
+          satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
+        ]);
 
       return res.status(200).json({
         success: true,
@@ -612,11 +752,11 @@ module.exports = {
 
     try {
       const [suratJalanData, satuanProduksi] = await Promise.all([
-          suratJalan.findByPk(parsedSuratJalanId, {
-            include: [{ model: satuanVolume }],
-          }),
-          satuanVolume.findByPk(parsedSatuanVolumeId),
-        ]);
+        suratJalan.findByPk(parsedSuratJalanId, {
+          include: [{ model: satuanVolume }],
+        }),
+        satuanVolume.findByPk(parsedSatuanVolumeId),
+      ]);
 
       if (!suratJalanData) {
         return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
@@ -695,6 +835,197 @@ module.exports = {
         await transaction.rollback();
         throw txErr;
       }
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
+  getAdminDataStats: async (req, res) => {
+    try {
+      const [totalSuratJalan, totalKonfirmasi, totalProduksi] =
+        await Promise.all([
+          suratJalan.count(),
+          konfirmasiPenerimaan.count(),
+          produksiSumur.count({
+            where: { suratJalanId: { [Op.not]: null } },
+          }),
+        ]);
+
+      return res.status(200).json({
+        success: true,
+        totalSuratJalan,
+        totalKonfirmasi,
+        totalProduksi,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteAllSuratJalan: async (req, res) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const [totalSuratJalan, totalKonfirmasi, totalProduksi] =
+        await Promise.all([
+          suratJalan.count({ transaction }),
+          konfirmasiPenerimaan.count({ transaction }),
+          produksiSumur.count({
+            where: { suratJalanId: { [Op.not]: null } },
+            transaction,
+          }),
+        ]);
+
+      if (totalSuratJalan === 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Tidak ada data surat jalan untuk dihapus",
+        });
+      }
+
+      const konfirmasiRows = await konfirmasiPenerimaan.findAll({
+        attributes: ["id"],
+        raw: true,
+        transaction,
+      });
+      const konfirmasiIds = konfirmasiRows.map((row) => row.id);
+
+      if (konfirmasiIds.length) {
+        await sequelize.query(
+          "DELETE FROM pengisianTankiKonfirmasis WHERE konfirmasiPenerimaanId IN (:ids)",
+          {
+            replacements: { ids: konfirmasiIds },
+            transaction,
+          },
+        );
+      }
+
+      await konfirmasiPenerimaan.destroy({
+        where: { id: { [Op.gt]: 0 } },
+        transaction,
+      });
+      await produksiSumur.destroy({
+        where: { suratJalanId: { [Op.not]: null } },
+        transaction,
+      });
+      const deletedSuratJalan = await suratJalan.destroy({
+        where: { id: { [Op.gt]: 0 } },
+        transaction,
+      });
+
+      await transaction.commit();
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "suratJalan:deletedAll",
+          title: "Semua Surat Jalan Dihapus",
+          description: `${deletedSuratJalan} surat jalan dihapus`,
+          entity: "suratJalan",
+        });
+        await emitNotifikasiSuratJalanDraft(io);
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi hapus surat jalan:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Semua data surat jalan berhasil dihapus",
+        deletedSuratJalan,
+        deletedKonfirmasiPenerimaan: totalKonfirmasi,
+        deletedProduksiSumur: totalProduksi,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getDetailSuratJalan: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    try {
+      const result = await suratJalan.findOne({
+        where: { id },
+        include: [
+          { model: mitra, include: [{ model: jenisMitra }] },
+          {
+            model: transportir,
+            include: [{ model: jenisTransportir }, { model: satuanVolume }],
+          },
+          { model: supir },
+          { model: daftarUnitKerja },
+          { model: stasiunPengumpulMinyak },
+          { model: asalMinyak },
+          { model: statusSuratJalan },
+          { model: satuanVolume },
+          {
+            model: produksiSumur,
+            include: [{ model: sumurMinyak }, { model: satuanVolume }],
+          },
+          {
+            model: konfirmasiPenerimaan,
+            include: [
+              {
+                model: pegawai,
+                attributes: ["id", "nama", "nip", "jabatan"],
+              },
+              {
+                model: pengisianTanki,
+                through: { attributes: [] },
+                include: [
+                  {
+                    model: tanki,
+                    include: [
+                      { model: satuanVolume },
+                      { model: stasiunPengumpulMinyak },
+                    ],
+                  },
+                  { model: satuanVolume },
+                  {
+                    model: BABongkar,
+                    include: [
+                      {
+                        model: ujiLabK3S,
+                        as: "ujiLabK3S",
+                        include: [{ model: tanki, attributes: ["id", "kode"] }],
+                      },
+                      { model: BAK3S, as: "BAK3S" },
+                      {
+                        model: BABongkarTanki,
+                        include: [{ model: tanki, attributes: ["id", "kode"] }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        order: [
+          [produksiSumur, "id", "ASC"],
+          [konfirmasiPenerimaan, "createdAt", "DESC"],
+        ],
+      });
+
+      if (!result) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      return res.status(200).json({
+        success: true,
+        result,
+      });
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
