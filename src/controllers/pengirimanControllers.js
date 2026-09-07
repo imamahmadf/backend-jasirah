@@ -843,20 +843,46 @@ module.exports = {
 
   getAdminDataStats: async (req, res) => {
     try {
-      const [totalSuratJalan, totalKonfirmasi, totalProduksi] =
-        await Promise.all([
-          suratJalan.count(),
-          konfirmasiPenerimaan.count(),
-          produksiSumur.count({
-            where: { suratJalanId: { [Op.not]: null } },
-          }),
-        ]);
+      const [
+        totalSuratJalan,
+        totalKonfirmasi,
+        totalProduksi,
+        totalPengisianTanki,
+        totalPengisianDenganBA,
+        totalBABongkarTerkait,
+        totalUjiLabK3S,
+        totalUjiLabDenganBA,
+      ] = await Promise.all([
+        suratJalan.count(),
+        konfirmasiPenerimaan.count(),
+        produksiSumur.count({
+          where: { suratJalanId: { [Op.not]: null } },
+        }),
+        pengisianTanki.count(),
+        pengisianTanki.count({
+          where: { BABongkarId: { [Op.not]: null } },
+        }),
+        pengisianTanki.count({
+          distinct: true,
+          col: "BABongkarId",
+          where: { BABongkarId: { [Op.not]: null } },
+        }),
+        ujiLabK3S.count(),
+        ujiLabK3S.count({
+          where: { BABongkarId: { [Op.not]: null } },
+        }),
+      ]);
 
       return res.status(200).json({
         success: true,
         totalSuratJalan,
         totalKonfirmasi,
         totalProduksi,
+        totalPengisianTanki,
+        totalPengisianDenganBA,
+        totalBABongkarTerkait,
+        totalUjiLabK3S,
+        totalUjiLabDenganBA,
       });
     } catch (err) {
       console.log(err);
@@ -939,6 +965,159 @@ module.exports = {
         deletedSuratJalan,
         deletedKonfirmasiPenerimaan: totalKonfirmasi,
         deletedProduksiSumur: totalProduksi,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteAllPengisianTanki: async (req, res) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const [totalPengisianTanki, totalPengisianDenganBA] = await Promise.all([
+        pengisianTanki.count({ transaction }),
+        pengisianTanki.count({
+          where: { BABongkarId: { [Op.not]: null } },
+          transaction,
+        }),
+      ]);
+
+      if (totalPengisianTanki === 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Tidak ada data pengisian tanki untuk dihapus",
+        });
+      }
+
+      const pengisianRows = await pengisianTanki.findAll({
+        attributes: ["id", "BABongkarId"],
+        raw: true,
+        transaction,
+      });
+      const pengisianIds = pengisianRows.map((row) => row.id);
+      const baIds = [
+        ...new Set(
+          pengisianRows.map((row) => row.BABongkarId).filter(Boolean),
+        ),
+      ];
+
+      if (pengisianIds.length) {
+        await sequelize.query(
+          "DELETE FROM pengisianTankiKonfirmasis WHERE pengisianTankiId IN (:ids)",
+          {
+            replacements: { ids: pengisianIds },
+            transaction,
+          },
+        );
+      }
+
+      const deletedPengisianTanki = await pengisianTanki.destroy({
+        where: { id: { [Op.gt]: 0 } },
+        transaction,
+      });
+
+      let deletedUjiLab = 0;
+      let deletedBAK3S = 0;
+      let deletedBABongkar = 0;
+
+      if (baIds.length) {
+        deletedUjiLab = await ujiLabK3S.destroy({
+          where: { BABongkarId: { [Op.in]: baIds } },
+          transaction,
+        });
+        deletedBAK3S = await BAK3S.destroy({
+          where: { BABongkarId: { [Op.in]: baIds } },
+          transaction,
+        });
+        await BABongkarTanki.destroy({
+          where: { BABongkarId: { [Op.in]: baIds } },
+          transaction,
+        });
+        deletedBABongkar = await BABongkar.destroy({
+          where: { id: { [Op.in]: baIds } },
+          transaction,
+        });
+      }
+
+      await transaction.commit();
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "pengisianTanki:deletedAll",
+          title: "Semua Pengisian Tanki Dihapus",
+          description: `${deletedPengisianTanki} pengisian tanki dihapus`,
+          entity: "pengisianTanki",
+        });
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi hapus pengisian tanki:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Semua data pengisian tanki berhasil dihapus",
+        deletedPengisianTanki,
+        deletedPengisianDenganBA: totalPengisianDenganBA,
+        deletedBABongkar,
+        deletedUjiLab,
+        deletedBAK3S,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteAllUjiLabK3S: async (req, res) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const [totalUjiLabK3S, totalUjiLabDenganBA] = await Promise.all([
+        ujiLabK3S.count({ transaction }),
+        ujiLabK3S.count({
+          where: { BABongkarId: { [Op.not]: null } },
+          transaction,
+        }),
+      ]);
+
+      if (totalUjiLabK3S === 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Tidak ada data uji lab K3S untuk dihapus",
+        });
+      }
+
+      const deletedUjiLabK3S = await ujiLabK3S.destroy({
+        where: { id: { [Op.gt]: 0 } },
+        transaction,
+      });
+
+      await transaction.commit();
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "ujiLabK3S:deletedAll",
+          title: "Semua Uji Lab K3S Dihapus",
+          description: `${deletedUjiLabK3S} uji lab K3S dihapus`,
+          entity: "ujiLabK3S",
+        });
+      } catch (notifyErr) {
+        console.error("Gagal mengirim notifikasi hapus uji lab K3S:", notifyErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Semua data uji lab K3S berhasil dihapus",
+        deletedUjiLabK3S,
+        deletedUjiLabDenganBA: totalUjiLabDenganBA,
       });
     } catch (err) {
       await transaction.rollback();

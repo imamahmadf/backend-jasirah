@@ -1497,6 +1497,7 @@ module.exports = {
       catatan,
       saksi,
       satuanVolumeId,
+      nomorSurat,
       ids,
     } = req.body;
     const transaction = await sequelize.transaction();
@@ -1511,21 +1512,10 @@ module.exports = {
         });
       }
 
-      if (existing.BABongkarId) {
-        await transaction.rollback();
-        return res.status(400).json({
-          message:
-            "Pengisian tanki sudah memiliki BA Bongkar dan tidak dapat diubah",
-        });
-      }
-
-      if (existing.nomorSurat) {
-        await transaction.rollback();
-        return res.status(400).json({
-          message:
-            "Pengisian tanki sudah memiliki nomor surat BAST dan tidak dapat diubah",
-        });
-      }
+      const nomorSuratValue =
+        nomorSurat === undefined
+          ? existing.nomorSurat
+          : String(nomorSurat).trim() || null;
 
       await pengisianTanki.update(
         {
@@ -1540,6 +1530,7 @@ module.exports = {
           BSW,
           catatan,
           saksi,
+          nomorSurat: nomorSuratValue,
           satuanVolumeId: satuanVolumeId
             ? parseInt(satuanVolumeId, 10)
             : null,

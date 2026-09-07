@@ -63,6 +63,7 @@ const {
   dashboardRouter,
   templateKPBPNRouter,
   stockOpnameTankiRouter,
+  nomorSuratKPBPNRouter,
 } = require("./routers");
 
 const PORT = process.env.PORT || 8000;
@@ -222,6 +223,7 @@ app.use("/api/user-kpbpn", userKPBPNRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/template-kpbpn", templateKPBPNRouter);
 app.use("/api/stock-opname", stockOpnameTankiRouter);
+app.use("/api/nomor-surat-kpbpn", nomorSuratKPBPNRouter);
 app.get("/api", (req, res) => {
   res.send(`Hello, this is my API`);
 });

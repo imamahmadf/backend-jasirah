@@ -33,6 +33,14 @@ routers.post(
   "/admin/delete-all-surat-jalan",
   pengirimanControllers.deleteAllSuratJalan,
 );
+routers.post(
+  "/admin/delete-all-pengisian-tanki",
+  pengirimanControllers.deleteAllPengisianTanki,
+);
+routers.post(
+  "/admin/delete-all-uji-lab",
+  pengirimanControllers.deleteAllUjiLabK3S,
+);
 routers.get(
   "/detail-surat-jalan/:id",
   pengirimanControllers.getDetailSuratJalan,
