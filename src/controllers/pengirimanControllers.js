@@ -25,7 +25,10 @@ const {
 } = require("../models");
 
 const { Op } = require("sequelize");
-const { buildSuratJalanDocxFromRecord } = require("../utils/suratJalanDocx");
+const {
+  buildSuratJalanDocxFromRecord,
+  buildSuratJalanDownloadBaseName,
+} = require("../utils/suratJalanDocx");
 const { getActiveTemplateFilePath } = require("../utils/templateKPBPN");
 const { convertDocxToPdf } = require("../utils/docxToPdf");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
@@ -484,31 +487,30 @@ module.exports = {
         verifikasiCode,
         templatePath,
       );
-      const safeNomor = String(result.nomor || id).replace(/[\\/:*?"<>|]/g, "-");
       const format = String(req.query.format || "pdf").toLowerCase();
       const isDocx =
         format === "docx" || format === "doc" || format === "word";
+      const ext = isDocx ? "docx" : "pdf";
+      const outputFileName = `${buildSuratJalanDownloadBaseName(result)}.${ext}`;
+      const encodedFileName = encodeURIComponent(outputFileName);
 
       if (isDocx) {
-        const outputFileName = `surat-jalan_${safeNomor}.docx`;
         res.setHeader(
           "Content-Type",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         );
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${outputFileName}"`,
+          `attachment; filename="${outputFileName}"; filename*=UTF-8''${encodedFileName}`,
         );
         return res.send(docxBuffer);
       }
 
       const pdfBuffer = await convertDocxToPdf(docxBuffer);
-      const outputFileName = `surat-jalan_${safeNomor}.pdf`;
-
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${outputFileName}"`,
+        `attachment; filename="${outputFileName}"; filename*=UTF-8''${encodedFileName}`,
       );
       return res.send(pdfBuffer);
     } catch (err) {

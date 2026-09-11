@@ -186,9 +186,60 @@ async function buildSuratJalanDocxFromRecord(
   return doc.getZip().generate({ type: "nodebuffer" });
 }
 
+function sanitizeDownloadFileName(name) {
+  return String(name || "")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getRomanMonthFromDate(date) {
+  const months = [
+    "I",
+    "II",
+    "III",
+    "IV",
+    "V",
+    "VI",
+    "VII",
+    "VIII",
+    "IX",
+    "X",
+    "XI",
+    "XII",
+  ];
+  const d = date ? new Date(date) : new Date();
+  if (Number.isNaN(d.getTime())) return "-";
+  return months[d.getMonth()] || "-";
+}
+
+function buildSuratJalanDownloadBaseName(record) {
+  const kodeAsal = String(record?.asalMinyak?.nomor || "").trim();
+  const storedNomor = String(record?.nomor || "").trim();
+  const storedHead = storedNomor.split(/[\\/]/)[0].trim();
+
+  let nomorSurat = storedHead;
+  if (!nomorSurat) {
+    const urut = parseInt(record?.mitra?.nomorUrutSuratJalan, 10);
+    const paddedUrut = Number.isFinite(urut)
+      ? String(Math.max(urut, 0)).padStart(3, "0")
+      : "";
+    nomorSurat =
+      `${kodeAsal}${paddedUrut}` || String(record?.id || "surat-jalan");
+  }
+
+  const kodeMitra = String(record?.mitra?.kode || "").trim() || "KODE";
+  const bulan = getRomanMonthFromDate(record?.tanggal);
+
+  return sanitizeDownloadFileName(
+    `${nomorSurat}_${kodeMitra}_${bulan}_Surat Jalan Pengiriman Minyak Bumi`,
+  );
+}
+
 module.exports = {
   buildSuratJalanDocxFromRecord,
   buildSuratJalanRenderData,
+  buildSuratJalanDownloadBaseName,
   formatTanggalIndonesia,
   formatTanggalJamIndonesia,
 };
