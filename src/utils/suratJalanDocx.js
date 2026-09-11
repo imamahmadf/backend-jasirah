@@ -113,7 +113,10 @@ function buildSuratJalanRenderData(record) {
   return {
     nomorSurat: record.nomor || "-",
     tanggal: formatTanggalIndonesia(record.tanggal),
-    namaMitra: record.mitra?.nama || "-",
+    namaMitra:
+      [record.mitra?.jenisMitra?.jenis, record.mitra?.nama]
+        .filter(Boolean)
+        .join(" ") || "-",
     alamat: record.mitra?.alamat || "-",
     penanggungJawab: record.mitra?.penanggungJawab || "-",
     telepon: record.mitra?.kontak || "-",

@@ -435,7 +435,7 @@ module.exports = {
       const result = await suratJalan.findOne({
         where: { id },
         include: [
-          { model: mitra },
+          { model: mitra, include: [{ model: jenisMitra }] },
           {
             model: transportir,
             include: [{ model: jenisTransportir }, { model: satuanVolume }],
