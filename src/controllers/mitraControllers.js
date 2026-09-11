@@ -59,6 +59,7 @@ module.exports = {
         kode,
         jenisMitraId: jenisMitraId ? parseInt(jenisMitraId) : null,
         nomorUrut: 0,
+        nomorUrutSuratJalan: 0,
       });
 
       const io = req.app.get("socketio");

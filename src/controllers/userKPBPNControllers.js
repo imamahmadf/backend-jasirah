@@ -99,6 +99,7 @@ module.exports = {
               "penanggungJawab",
               "kode",
               "nomorUrut",
+              "nomorUrutSuratJalan",
               "jenisMitraId",
             ],
           },

@@ -25,9 +25,9 @@ const {
 } = require("../models");
 
 const { Op } = require("sequelize");
-const fs = require("fs");
-const path = require("path");
 const { buildSuratJalanDocxFromRecord } = require("../utils/suratJalanDocx");
+const { getActiveTemplateFilePath } = require("../utils/templateKPBPN");
+const { convertDocxToPdf } = require("../utils/docxToPdf");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
 const { sendMessage } = require("../services/waServices");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
@@ -471,30 +471,46 @@ module.exports = {
         );
       }
 
-      const buffer = await buildSuratJalanDocxFromRecord(
-        result,
-        verifikasiCode,
-      );
-      const outputFileName = `surat-jalan_${result.nomor || id}_${Date.now()}.docx`;
-      const outputPath = path.join(
-        __dirname,
-        "../public/output",
-        outputFileName,
-      );
-
-      if (!fs.existsSync(path.dirname(outputPath))) {
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      const templatePath = await getActiveTemplateFilePath("suratJalan");
+      if (!templatePath) {
+        return res.status(400).json({
+          error:
+            "Template surat jalan aktif tidak ditemukan. Unggah dan aktifkan template pada menu Template Dokumen KPBPN.",
+        });
       }
 
-      fs.writeFileSync(outputPath, buffer);
+      const docxBuffer = await buildSuratJalanDocxFromRecord(
+        result,
+        verifikasiCode,
+        templatePath,
+      );
+      const safeNomor = String(result.nomor || id).replace(/[\\/:*?"<>|]/g, "-");
+      const format = String(req.query.format || "pdf").toLowerCase();
+      const isDocx =
+        format === "docx" || format === "doc" || format === "word";
 
-      res.download(outputPath, outputFileName, (err) => {
-        if (err) {
-          console.error("Error sending file:", err);
-          return res.status(500).send("Error generating file");
-        }
-        fs.unlinkSync(outputPath);
-      });
+      if (isDocx) {
+        const outputFileName = `surat-jalan_${safeNomor}.docx`;
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${outputFileName}"`,
+        );
+        return res.send(docxBuffer);
+      }
+
+      const pdfBuffer = await convertDocxToPdf(docxBuffer);
+      const outputFileName = `surat-jalan_${safeNomor}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${outputFileName}"`,
+      );
+      return res.send(pdfBuffer);
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
@@ -522,6 +538,11 @@ module.exports = {
       if (!dbMitra) {
         return res.status(400).json({ error: "Mitra tidak ditemukan" });
       }
+      if (!dbNoSurat?.nomor) {
+        return res.status(500).json({
+          error: "Template nomor surat jalan tidak ditemukan",
+        });
+      }
       if (!dbSurat.asalMinyak?.nomor) {
         return res.status(400).json({
           error: "Asal minyak belum diisi pada surat jalan",
@@ -529,7 +550,7 @@ module.exports = {
       }
 
       const kodeMitra = dbMitra.kode;
-      const nomorUrut = parseInt(dbNoSurat.nomorUrut) + 1;
+      const nomorUrut = (parseInt(dbMitra.nomorUrutSuratJalan, 10) || 0) + 1;
       const nomorAsalMinyak = String(dbSurat.asalMinyak.nomor).trim();
       const nomorGabungan = `${nomorAsalMinyak}${nomorUrut.toString().padStart(3, "0")}`;
 
@@ -539,9 +560,9 @@ module.exports = {
         .replace("TAHUN", "2026")
         .replace("KODE", kodeMitra);
 
-      await nomorSuratKPBPN.update(
-        { nomorUrut }, // Hanya objek yang berisi field yang ingin diperbarui
-        { where: { id: 1 } },
+      await mitra.update(
+        { nomorUrutSuratJalan: nomorUrut },
+        { where: { id: dbMitra.id } },
       );
 
       const result = await suratJalan.update(

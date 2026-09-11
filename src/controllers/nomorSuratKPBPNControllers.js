@@ -14,6 +14,31 @@ const labelNomorSurat = (item) => {
   return item.nomor || `Nomor #${item.id}`;
 };
 
+const mapMitraNomorUrut = (item) => {
+  const data = item.toJSON();
+  const nomorUrutBast = parseInt(data.nomorUrut, 10) || 0;
+  const nomorUrutSuratJalan = parseInt(data.nomorUrutSuratJalan, 10) || 0;
+  return {
+    ...data,
+    nomorUrut: nomorUrutBast,
+    nomorUrutSuratJalan,
+    nomorBerikutnya: nomorUrutBast + 1,
+    nomorBerikutnyaSuratJalan: nomorUrutSuratJalan + 1,
+  };
+};
+
+const mitraInclude = {
+  attributes: [
+    "id",
+    "nama",
+    "kode",
+    "nomorUrut",
+    "nomorUrutSuratJalan",
+    "jenisMitraId",
+  ],
+  include: [{ model: jenisMitra, attributes: ["id", "jenis", "kode"] }],
+};
+
 module.exports = {
   getNomorUrut: async (req, res) => {
     try {
@@ -22,8 +47,7 @@ module.exports = {
           order: [["id", "ASC"]],
         }),
         mitra.findAll({
-          attributes: ["id", "nama", "kode", "nomorUrut", "jenisMitraId"],
-          include: [{ model: jenisMitra, attributes: ["id", "jenis", "kode"] }],
+          ...mitraInclude,
           order: [["nama", "ASC"]],
         }),
       ]);
@@ -32,12 +56,8 @@ module.exports = {
         resultNomorSurat: resultNomorSurat.map((item) => ({
           ...item.toJSON(),
           label: labelNomorSurat(item),
-          nomorBerikutnya: (parseInt(item.nomorUrut, 10) || 0) + 1,
         })),
-        resultMitra: resultMitra.map((item) => ({
-          ...item.toJSON(),
-          nomorBerikutnya: (parseInt(item.nomorUrut, 10) || 0) + 1,
-        })),
+        resultMitra: resultMitra.map(mapMitraNomorUrut),
       });
     } catch (err) {
       console.log(err);
@@ -83,6 +103,7 @@ module.exports = {
   updateNomorUrutMitra: async (req, res) => {
     try {
       const { id } = req.params;
+      const jenis = req.body.jenis === "suratJalan" ? "suratJalan" : "bast";
       const nomorUrut = parseNomorUrut(req.body.nomorUrut);
 
       if (nomorUrut === null) {
@@ -96,19 +117,15 @@ module.exports = {
         return res.status(404).json({ error: "Mitra tidak ditemukan" });
       }
 
-      await mitra.update({ nomorUrut }, { where: { id } });
+      const field = jenis === "suratJalan" ? "nomorUrutSuratJalan" : "nomorUrut";
+      await mitra.update({ [field]: nomorUrut }, { where: { id } });
 
-      const result = await mitra.findByPk(id, {
-        attributes: ["id", "nama", "kode", "nomorUrut", "jenisMitraId"],
-        include: [{ model: jenisMitra, attributes: ["id", "jenis", "kode"] }],
-      });
+      const result = await mitra.findByPk(id, mitraInclude);
+      const labelJenis = jenis === "suratJalan" ? "surat jalan" : "BAST";
 
       return res.status(200).json({
-        message: `Nomor urut BAST mitra ${result.nama} berhasil diperbarui`,
-        result: {
-          ...result.toJSON(),
-          nomorBerikutnya: (parseInt(result.nomorUrut, 10) || 0) + 1,
-        },
+        message: `Nomor urut ${labelJenis} mitra ${result.nama} berhasil diperbarui`,
+        result: mapMitraNomorUrut(result),
       });
     } catch (err) {
       console.log(err);

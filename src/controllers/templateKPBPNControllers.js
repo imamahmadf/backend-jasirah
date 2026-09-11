@@ -7,7 +7,9 @@ const STATUS_VALUES = ["aktif", "nonaktif"];
 
 const deleteFileIfExists = (filePath) => {
   if (!filePath) return;
-  const fullPath = path.join(__dirname, "../public", filePath);
+  const normalized = String(filePath).replace(/^[/\\]+/, "");
+  if (!normalized.startsWith("template-kpbpn/")) return;
+  const fullPath = path.resolve(__dirname, "../public", normalized);
   if (fs.existsSync(fullPath)) {
     fs.unlink(fullPath, (err) => {
       if (err) console.error(err);

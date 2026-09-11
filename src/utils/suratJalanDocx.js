@@ -13,11 +13,6 @@ try {
   sizeOf = null;
 }
 
-const TEMPLATE_PATH = path.join(
-  __dirname,
-  "../public/surat-jalan/surat-jalan.docx",
-);
-
 const BULAN = [
   "Januari",
   "Februari",
@@ -137,13 +132,22 @@ function buildSuratJalanRenderData(record) {
       : "-",
     jamDatang: formatTanggalJamIndonesia(record?.jamDatang),
     jamPergi: formatTanggalJamIndonesia(record?.jamPergi),
-    jenisTransportir: record?.jenisTransportir?.jenis || "-",
+    jenisTransportir:
+      record?.transportir?.jenisTransportir?.jenis ||
+      record?.jenisTransportir?.jenis ||
+      "-",
   };
 }
 
-async function buildSuratJalanDocxFromRecord(record, verifikasiCode) {
-  if (!fs.existsSync(TEMPLATE_PATH)) {
-    throw new Error("Template surat jalan tidak ditemukan");
+async function buildSuratJalanDocxFromRecord(
+  record,
+  verifikasiCode,
+  templatePath,
+) {
+  if (!templatePath || !fs.existsSync(templatePath)) {
+    throw new Error(
+      "Template surat jalan aktif tidak ditemukan. Unggah dan aktifkan template pada menu Template Dokumen KPBPN.",
+    );
   }
 
   if (!verifikasiCode) {
@@ -162,7 +166,7 @@ async function buildSuratJalanDocxFromRecord(record, verifikasiCode) {
     { sizePx: 400, logoPath, logoScale: 0.3 },
   );
 
-  const content = fs.readFileSync(TEMPLATE_PATH, "binary");
+  const content = fs.readFileSync(templatePath, "binary");
   const zip = new PizZip(content);
   const imageModule = createImageModule();
   const doc = new Docxtemplater(zip, {
