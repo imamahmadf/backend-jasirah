@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .wwebjs_auth/
+.lo-profile/
 
 # Environment variables
 .env

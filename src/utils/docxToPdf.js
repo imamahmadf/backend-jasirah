@@ -2,11 +2,16 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
 
+const FONTS_DIR = path.join(__dirname, "../fonts");
+const LO_PROFILE_DIR = path.join(__dirname, "../.lo-profile");
+
+let fontsReady = null;
 let conversionQueue = Promise.resolve();
 
 function convertDocxToPdf(docxBuffer) {
@@ -68,21 +73,118 @@ function findSofficeBinary() {
           "/opt/libreoffice/program/soffice",
         ];
 
-  return candidates.filter(Boolean).find((candidate) => fsSync.existsSync(candidate)) || null;
+  return (
+    candidates
+      .filter(Boolean)
+      .find((candidate) => fsSync.existsSync(candidate)) || null
+  );
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function ensureFontsProfile() {
+  if (!fontsReady) fontsReady = prepareFontsProfile();
+  return fontsReady;
+}
+
+async function prepareFontsProfile() {
+  const userFonts = path.join(LO_PROFILE_DIR, "user", "fonts");
+  const cacheDir = path.join(LO_PROFILE_DIR, "fontconfig-cache");
+  await fs.mkdir(userFonts, { recursive: true });
+  await fs.mkdir(cacheDir, { recursive: true });
+
+  let fontFiles = [];
+  if (fsSync.existsSync(FONTS_DIR)) {
+    fontFiles = (await fs.readdir(FONTS_DIR)).filter((file) =>
+      /\.(ttf|otf)$/i.test(file),
+    );
+  }
+
+  await Promise.all(
+    fontFiles.map(async (file) => {
+      const dest = path.join(userFonts, file);
+      try {
+        await fs.access(dest);
+      } catch {
+        await fs.copyFile(path.join(FONTS_DIR, file), dest);
+      }
+    }),
+  );
+
+  const fontsConfPath = path.join(LO_PROFILE_DIR, "fonts.conf");
+  await fs.writeFile(
+    fontsConfPath,
+    `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>${escapeXml(userFonts)}</dir>
+  <dir>${escapeXml(FONTS_DIR)}</dir>
+  <cachedir>${escapeXml(cacheDir)}</cachedir>
+</fontconfig>
+`,
+    "utf8",
+  );
+
+  try {
+    await execFileAsync("fc-cache", ["-f", userFonts], { timeout: 15000 });
+  } catch {
+    // fc-cache opsional; LibreOffice tetap membaca folder user/fonts
+  }
+
+  return { profileDir: LO_PROFILE_DIR, fontsConfPath };
 }
 
 async function convertWithLibreOffice(docxBuffer, soffice) {
+  const { profileDir, fontsConfPath } = await ensureFontsProfile();
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "surat-jalan-pdf-"));
   const docxPath = path.join(tempDir, "surat-jalan.docx");
   const pdfPath = path.join(tempDir, "surat-jalan.pdf");
 
   try {
     await fs.writeFile(docxPath, docxBuffer);
-    await execFileAsync(
-      soffice,
-      ["--headless", "--norestore", "--convert-to", "pdf", "--outdir", tempDir, docxPath],
-      { timeout: 60000, windowsHide: true },
-    );
+
+    const env = {
+      ...process.env,
+      FONTCONFIG_FILE: fontsConfPath,
+      HOME: profileDir,
+    };
+
+    const baseArgs = [
+      `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+      "--headless",
+      "--norestore",
+      "--nolockcheck",
+      "--convert-to",
+    ];
+
+    const filters = [
+      'pdf:writer_pdf_Export:{"EmbedStandardFonts":{"type":"boolean","value":"true"}}',
+      "pdf:writer_pdf_Export",
+    ];
+
+    let lastError;
+    for (const filter of filters) {
+      try {
+        await execFileAsync(
+          soffice,
+          [...baseArgs, filter, "--outdir", tempDir, docxPath],
+          { timeout: 60000, windowsHide: true, env },
+        );
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (lastError) throw lastError;
+
     return await fs.readFile(pdfPath);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
