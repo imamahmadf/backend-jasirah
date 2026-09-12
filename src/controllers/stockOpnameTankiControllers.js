@@ -6,6 +6,9 @@ const {
   BABongkarTanki,
   satuanVolume,
   stasiunPengumpulMinyak,
+  konfirmasiPenerimaan,
+  suratJalan,
+  mitra,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -60,12 +63,16 @@ const toDateKey = (value) => {
 const buildDateRange = (startDate, endDate) => {
   const range = {};
   if (startDate) {
-    range[Op.gte] = new Date(startDate);
+    const startKey = toDateKey(startDate);
+    if (startKey) {
+      range[Op.gte] = new Date(`${startKey}T00:00:00.000`);
+    }
   }
   if (endDate) {
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-    range[Op.lte] = end;
+    const endKey = toDateKey(endDate);
+    if (endKey) {
+      range[Op.lte] = new Date(`${endKey}T23:59:59.999`);
+    }
   }
   return Object.keys(range).length ? range : null;
 };
@@ -140,6 +147,7 @@ const tankiInclude = [
 const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
   const pengisianWhere = {};
   const baWhere = {};
+  const baTankiWhere = {};
   const dateRange = buildDateRange(startDate, endDate);
 
   if (dateRange) {
@@ -149,16 +157,26 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
 
   if (tankiIds?.length) {
     pengisianWhere.tangkiId = { [Op.in]: tankiIds };
+    baTankiWhere.tangkiId = { [Op.in]: tankiIds };
   }
-
-  const baPengisianWhere = tankiIds?.length
-    ? { tangkiId: { [Op.in]: tankiIds } }
-    : undefined;
 
   const [pengisianList, baList] = await Promise.all([
     pengisianTanki.findAll({
       where: pengisianWhere,
-      include: [{ model: tanki }, { model: satuanVolume }],
+      include: [
+        { model: tanki },
+        { model: satuanVolume },
+        {
+          model: konfirmasiPenerimaan,
+          through: { attributes: [] },
+          include: [
+            {
+              model: suratJalan,
+              include: [{ model: mitra, attributes: ["id", "nama", "kode"] }],
+            },
+          ],
+        },
+      ],
       order: [
         ["tanggal", "ASC"],
         ["id", "ASC"],
@@ -168,12 +186,11 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
       where: baWhere,
       include: [
         {
-          model: pengisianTanki,
-          where: baPengisianWhere,
+          model: BABongkarTanki,
+          where: Object.keys(baTankiWhere).length ? baTankiWhere : undefined,
           required: Boolean(tankiIds?.length),
           include: [{ model: tanki }],
         },
-        { model: BABongkarTanki },
       ],
       order: [
         ["tanggal", "ASC"],
@@ -221,18 +238,46 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
     const netBarrel = roundBarrelVolume(
       convertVolumeToBarrel(item.net, satuanAsli),
     );
+    const kandunganAirBarrel = roundBarrelVolume(
+      convertVolumeToBarrel(item.kandunganAir, satuanAsli),
+    );
 
     row.masuk += grossBarrel;
     row.jumlahMasuk += 1;
+    const suratJalans = [];
+    const seenSuratJalan = new Set();
+    for (const kp of item.konfirmasiPenerimaans || []) {
+      const sj = kp.suratJalan;
+      if (!sj?.id || seenSuratJalan.has(sj.id)) continue;
+      seenSuratJalan.add(sj.id);
+      suratJalans.push({
+        id: sj.id,
+        nomor: sj.nomor || null,
+        tanggal: sj.tanggal || null,
+        mitraNama: sj.mitra?.nama || null,
+        mitraKode: sj.mitra?.kode || null,
+      });
+    }
+
     row.detailMasuk.push({
       id: item.id,
+      tankiId: tangkiIdValue,
       nomorSurat: item.nomorSurat || null,
+      flowMeter: item.flowMeter ?? null,
       gross: item.gross,
       net: item.net,
       grossBarrel,
       netBarrel,
+      kandunganAirBarrel,
       satuan: satuanAsli,
       tanggal: item.tanggal || item.createdAt,
+      penampilanVisual: item.penampilanVisual || null,
+      warna: item.warna || null,
+      kandunganAir: item.kandunganAir ?? null,
+      BSW: item.BSW ?? null,
+      catatan: item.catatan || null,
+      saksi: item.saksi || null,
+      suratJalans,
     });
   }
 
@@ -240,47 +285,32 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
     const dateKey = toDateKey(ba.tanggal);
     if (!dateKey) continue;
 
-    const byTank = new Map();
-    for (const item of ba.pengisianTankis || []) {
-      const tangkiIdValue = item.tangkiId ?? item.tanki?.id;
+    for (const detail of ba.BABongkarTankis || []) {
+      const tangkiIdValue = detail.tangkiId ?? detail.tanki?.id;
       if (!tangkiIdValue) continue;
 
-      if (!byTank.has(tangkiIdValue)) {
-        byTank.set(tangkiIdValue, {
-          kode: item.tanki?.kode,
-          factorTank: item.tanki?.factorTank,
-          pengisianIds: [],
-        });
-      }
-
-      byTank.get(tangkiIdValue).pengisianIds.push(item.id);
-    }
-
-    for (const [tangkiIdValue, group] of byTank.entries()) {
       const row = getOrCreate(dateKey, tangkiIdValue, {
-        kode: group.kode,
+        kode: detail.tanki?.kode,
       });
 
-      const ukuranDetail = (ba.BABongkarTankis || []).find(
-        (detail) => detail.tangkiId === tangkiIdValue,
-      );
-      const ukuranCairan = ukuranDetail?.ukuranCairan ?? ba.ukuranCairan;
-      const ukuranAir = ukuranDetail?.ukuranAir ?? ba.ukuranAir;
+      const ukuranCairan = detail.ukuranCairan ?? ba.ukuranCairan;
+      const ukuranAir = detail.ukuranAir ?? ba.ukuranAir;
       const volumeKeluar = calcKeluarBarrel(
         ukuranCairan,
         ukuranAir,
-        group.factorTank,
+        detail.tanki?.factorTank,
       );
 
       row.keluar += volumeKeluar;
       row.jumlahKeluar += 1;
       row.detailKeluar.push({
+        id: detail.id,
         baId: ba.id,
+        tankiId: tangkiIdValue,
         tanggal: ba.tanggal,
         ukuranCairan,
         ukuranAir,
         volume: volumeKeluar,
-        pengisianIds: group.pengisianIds,
       });
     }
   }
