@@ -65,6 +65,25 @@ const parseKonfirmasiIds = (ids) => [
   ),
 ];
 
+const pad2 = (n) => String(n).padStart(2, "0");
+
+const formatLocalSqlDateTime = (date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(
+    date.getHours(),
+  )}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+
+const getLocalStartOfDaysAgo = (daysAgo) => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - daysAgo);
+  return formatLocalSqlDateTime(start);
+};
+
+const isAvailableKonfirmasiQuery = (value) => {
+  const normalized = String(value || "").toLowerCase();
+  return normalized === "1" || normalized === "true";
+};
+
 const parseDecimalInput = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const normalized = String(value).trim().replace(",", ".");
@@ -664,7 +683,30 @@ module.exports = {
 
   getKonfirmasiPenerimaan: async (req, res) => {
     try {
+      const whereCondition = {};
+
+      if (isAvailableKonfirmasiQuery(req.query.availableForPengisian)) {
+        const start = getLocalStartOfDaysAgo(2);
+        whereCondition[Op.or] = [
+          {
+            id: {
+              [Op.notIn]: sequelize.literal(
+                "(SELECT konfirmasiPenerimaanId FROM pengisianTankiKonfirmasis)",
+              ),
+            },
+          },
+          {
+            id: {
+              [Op.in]: sequelize.literal(
+                `(SELECT konfirmasiPenerimaanId FROM pengisianTankiKonfirmasis WHERE createdAt >= ${sequelize.escape(start)})`,
+              ),
+            },
+          },
+        ];
+      }
+
       const result = await konfirmasiPenerimaan.findAll({
+        where: whereCondition,
         include: [
           {
             model: suratJalan,
@@ -677,7 +719,7 @@ module.exports = {
           { model: pegawai },
           {
             model: pengisianTanki,
-            through: { attributes: [] },
+            through: { attributes: ["createdAt"] },
             include: [{ model: tanki, attributes: ["id", "kode"] }],
           },
         ],

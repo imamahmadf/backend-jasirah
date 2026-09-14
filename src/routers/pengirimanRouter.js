@@ -13,6 +13,7 @@ routers.get("/get/seed", pengirimanControllers.getSeed);
 routers.get("/get/cetak/:id", pengirimanControllers.cetakSuratJalan);
 routers.post("/post", pengirimanControllers.addSuratJalan);
 routers.post("/edit/:id", pengirimanControllers.editSuratJalan);
+routers.post("/delete/:id", pengirimanControllers.deleteSuratJalan);
 routers.post(
   "/post/konfirmasi",
   fileUploader({
@@ -22,12 +23,22 @@ routers.post(
   }).single("foto"),
   pengirimanControllers.addKonfirmasiPenerimaan,
 );
+routers.post(
+  "/edit/konfirmasi/:id",
+  fileUploader({
+    destinationFolder: "konfirmasi-penerimaan",
+    fileType: "image",
+    prefix: "FOTO-KONFIRMASI",
+  }).single("foto"),
+  pengirimanControllers.editKonfirmasiPenerimaan,
+);
 routers.get(
   "/get/produksi-sumur/:suratJalanId",
   pengirimanControllers.getProduksiSumurBySuratJalan,
 );
 routers.post("/post/produksi-sumur", pengirimanControllers.saveProduksiSumur);
 routers.post("/verifikasi/:id", pengirimanControllers.verifikasiSuratJalan);
+routers.post("/batal/:id", pengirimanControllers.batalSuratJalan);
 routers.get("/admin/stats", pengirimanControllers.getAdminDataStats);
 routers.post(
   "/admin/delete-all-surat-jalan",

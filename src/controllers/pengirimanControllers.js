@@ -35,6 +35,8 @@ const { getRomanMonth } = require("../lib/perjalananHelpers");
 const { sendMessage } = require("../services/waServices");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
 const { emitNotifikasiSuratJalanDraft } = require("./notifikasiControllers");
+const fs = require("fs");
+const path = require("path");
 
 const toTimeString = (time) => {
   if (!time) return null;
@@ -61,6 +63,27 @@ const convertVolumeToLiter = (volume, satuanName) => {
   return value;
 };
 
+const parseDecimalBody = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim().replace(",", ".");
+  const num = parseFloat(normalized);
+  return Number.isNaN(num) ? null : num;
+};
+
+const deleteKonfirmasiFoto = (relativePath) => {
+  if (!relativePath) return;
+  const normalized = String(relativePath).replace(/^[/\\]+/, "");
+  if (!normalized.startsWith("konfirmasi-penerimaan/")) return;
+  const fullPath = path.join(__dirname, "../public", normalized);
+  if (fs.existsSync(fullPath)) {
+    try {
+      fs.unlinkSync(fullPath);
+    } catch (err) {
+      console.error("Gagal menghapus foto konfirmasi:", err);
+    }
+  }
+};
+
 module.exports = {
   getSuratJalan: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
@@ -77,10 +100,10 @@ module.exports = {
     const statusSuratJalanId = parseInt(req.query.statusSuratJalanId);
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
-    const allowedSortBy = ["tanggal", "nomor", "volume"];
+    const allowedSortBy = ["id", "tanggal", "nomor", "volume"];
     const sortBy = allowedSortBy.includes(req.query.sortBy)
       ? req.query.sortBy
-      : "tanggal";
+      : "id";
     const sortOrder =
       String(req.query.sortOrder || "DESC").toUpperCase() === "ASC"
         ? "ASC"
@@ -360,12 +383,6 @@ module.exports = {
         return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
       }
 
-      if (existing.statusSuratJalanId === 3) {
-        return res.status(400).json({
-          error: "Surat jalan yang sudah dikonfirmasi tidak dapat diubah",
-        });
-      }
-
       const parsedMitraId = parseInt(mitraId, 10);
       const parsedTransportirId = parseInt(transportirId, 10);
       const parsedSupirId = parseInt(supirId, 10);
@@ -424,6 +441,101 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
+    }
+  },
+
+  deleteSuratJalan: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      const existing = await suratJalan.findByPk(id, {
+        include: [
+          {
+            model: konfirmasiPenerimaan,
+            include: [{ model: pengisianTanki, attributes: ["id"] }],
+          },
+        ],
+        transaction,
+      });
+
+      if (!existing) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      const konfirmasiList = existing.konfirmasiPenerimaans || [];
+      const usedInPengisian = konfirmasiList.some(
+        (kp) => (kp.pengisianTankis || []).length > 0,
+      );
+
+      if (usedInPengisian) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error:
+            "Surat jalan sudah digunakan pada pengisian tanki dan tidak dapat dihapus",
+        });
+      }
+
+      const konfirmasiIds = konfirmasiList.map((kp) => kp.id);
+
+      if (konfirmasiIds.length) {
+        await sequelize.query(
+          "DELETE FROM pengisianTankiKonfirmasis WHERE konfirmasiPenerimaanId IN (:ids)",
+          {
+            replacements: { ids: konfirmasiIds },
+            transaction,
+          },
+        );
+        await konfirmasiPenerimaan.destroy({
+          where: { id: { [Op.in]: konfirmasiIds } },
+          transaction,
+        });
+      }
+
+      await produksiSumur.destroy({
+        where: { suratJalanId: id },
+        transaction,
+      });
+      await suratJalan.destroy({
+        where: { id },
+        transaction,
+      });
+
+      await transaction.commit();
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "suratJalan:deleted",
+          title: "Surat Jalan Dihapus",
+          description: `Surat jalan ${existing.nomor || `#${id}`} dihapus`,
+          entity: "suratJalan",
+          entityId: id,
+        });
+        if (existing.statusSuratJalanId === 1) {
+          await emitNotifikasiSuratJalanDraft(io);
+        }
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi hapus surat jalan:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Surat jalan berhasil dihapus",
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({ error: err.message });
     }
   },
 
@@ -601,6 +713,84 @@ module.exports = {
     }
   },
 
+  batalSuratJalan: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    try {
+      const existing = await suratJalan.findByPk(id, {
+        include: [
+          {
+            model: konfirmasiPenerimaan,
+            include: [{ model: pengisianTanki, attributes: ["id"] }],
+          },
+        ],
+      });
+
+      if (!existing) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      if (existing.statusSuratJalanId === 4) {
+        return res.status(400).json({
+          error: "Surat jalan sudah berstatus BATAL",
+        });
+      }
+
+      if (existing.statusSuratJalanId === 3) {
+        return res.status(400).json({
+          error: "Surat jalan yang sudah tiba tidak dapat dibatalkan",
+        });
+      }
+
+      const konfirmasiList = existing.konfirmasiPenerimaans || [];
+      const usedInPengisian = konfirmasiList.some(
+        (kp) => (kp.pengisianTankis || []).length > 0,
+      );
+
+      if (usedInPengisian) {
+        return res.status(400).json({
+          error:
+            "Surat jalan sudah digunakan pada pengisian tanki dan tidak dapat dibatalkan",
+        });
+      }
+
+      const previousStatusId = existing.statusSuratJalanId;
+      await existing.update({ statusSuratJalanId: 4 });
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "suratJalan:cancelled",
+          title: "Surat Jalan Dibatalkan",
+          description: `Surat jalan ${existing.nomor || `#${id}`} berstatus BATAL`,
+          entity: "suratJalan",
+          entityId: id,
+        });
+        if (previousStatusId === 1) {
+          await emitNotifikasiSuratJalanDraft(io);
+        }
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi batal surat jalan:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Surat jalan berhasil dibatalkan",
+        result: existing,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   getKonfirmasiBySuratJalan: async (req, res) => {
     const suratJalanId = parseInt(req.params.suratJalanId, 10);
 
@@ -640,15 +830,8 @@ module.exports = {
     const { suratJalanId, tanggal, volume, pegawaiId, catatan, api, BSNW } =
       req.body;
 
-    const parseDecimalInput = (value) => {
-      if (value === undefined || value === null || value === "") return null;
-      const normalized = String(value).trim().replace(",", ".");
-      const num = parseFloat(normalized);
-      return Number.isNaN(num) ? null : num;
-    };
-
-    const apiValue = parseDecimalInput(api);
-    const bsnwValue = parseDecimalInput(BSNW);
+    const apiValue = parseDecimalBody(api);
+    const bsnwValue = parseDecimalBody(BSNW);
 
     if (
       !suratJalanId ||
@@ -716,6 +899,91 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
+    }
+  },
+
+  editKonfirmasiPenerimaan: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { tanggal, volume, pegawaiId, catatan, api, BSNW } = req.body;
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({ error: "ID konfirmasi penerimaan tidak valid" });
+    }
+
+    const apiValue = parseDecimalBody(api);
+    const bsnwValue = parseDecimalBody(BSNW);
+
+    if (
+      !tanggal ||
+      volume === undefined ||
+      volume === "" ||
+      !pegawaiId ||
+      apiValue === null ||
+      bsnwValue === null
+    ) {
+      return res.status(400).json({ error: "Semua field wajib diisi" });
+    }
+
+    try {
+      const existing = await konfirmasiPenerimaan.findByPk(id, {
+        include: [{ model: suratJalan }],
+      });
+
+      if (!existing) {
+        return res
+          .status(404)
+          .json({ error: "Konfirmasi penerimaan tidak ditemukan" });
+      }
+
+      if (existing.suratJalan?.statusSuratJalanId === 4) {
+        return res.status(400).json({
+          error:
+            "Konfirmasi penerimaan pada surat jalan BATAL tidak dapat diubah",
+        });
+      }
+
+      let foto = existing.foto;
+      if (req.file) {
+        deleteKonfirmasiFoto(existing.foto);
+        foto = `/konfirmasi-penerimaan/${req.file.filename}`;
+      }
+
+      await existing.update({
+        tanggal: new Date(tanggal),
+        volume: parseInt(volume, 10),
+        pegawaiId: parseInt(pegawaiId, 10),
+        catatan: catatan || null,
+        api: apiValue,
+        BSNW: bsnwValue,
+        foto,
+      });
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "konfirmasi:updated",
+          title: "Konfirmasi Penerimaan Diperbarui",
+          description: `Konfirmasi penerimaan #${id} diperbarui`,
+          entity: "konfirmasiPenerimaan",
+          entityId: id,
+        });
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi edit konfirmasi:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Konfirmasi penerimaan berhasil diperbarui",
+        result: existing,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
     }
   },
 
