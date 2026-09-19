@@ -27,6 +27,12 @@ const statusSuratJalans = [
     status: "BATAL",
     id: 4,
   },
+  {
+    createdAt: currentDate,
+    updatedAt: currentDate,
+    status: "BONGKAR",
+    id: 5,
+  },
 ];
 
 /** @type {import('sequelize-cli').Migration} */

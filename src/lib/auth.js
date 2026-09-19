@@ -1,6 +1,44 @@
 const jwt = require("jsonwebtoken");
 const blacklistedTokens = new Set();
 
+const ROLE_KPBPN = {
+  SUPER_ADMIN: 1,
+  ADMIN: 2,
+  MITRA: 3,
+  KEUANGAN: 4,
+  PETUGAS_KEAMANAN: 5,
+};
+
+const getKpbpnRoleIds = (req) => {
+  if (Array.isArray(req.user?.roleIds)) {
+    return req.user.roleIds.map(Number);
+  }
+
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "SECRET_KEY",
+      );
+      return (decoded.roleIds || []).map(Number);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const isPetugasKeamananOnly = (req) => {
+  const roleIds = getKpbpnRoleIds(req);
+  return (
+    roleIds.includes(ROLE_KPBPN.PETUGAS_KEAMANAN) &&
+    !roleIds.includes(ROLE_KPBPN.SUPER_ADMIN) &&
+    !roleIds.includes(ROLE_KPBPN.ADMIN)
+  );
+};
+
 const isTokenBlacklisted = (token) => {
   return blacklistedTokens.has(token);
 };
@@ -61,6 +99,9 @@ const authorizeKpbpnRoles = (roles) => {
 };
 
 module.exports = {
+  ROLE_KPBPN,
+  getKpbpnRoleIds,
+  isPetugasKeamananOnly,
   authenticateUser,
   authorizeRole,
   authorizeKpbpnRoles,

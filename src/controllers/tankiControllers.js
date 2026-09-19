@@ -52,8 +52,9 @@ const resolveUserKPBPNId = (req) => {
   return Number.isInteger(fromBody) ? fromBody : null;
 };
 
-const getUserKPBPNInclude = () => ({
+const getUserKPBPNInclude = (as) => ({
   model: userKPBPN,
+  ...(as ? { as } : {}),
   attributes: ["id", "nama", "namaPengguna", "profilePic"],
 });
 
@@ -292,11 +293,18 @@ const convertVolumeFromBarrel = (volumeBarrel, satuanName) => {
   return value;
 };
 
+const roundVolumeNumber = (value, maxDecimals = 3) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 0;
+  const factor = 10 ** maxDecimals;
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+};
+
 const parseProduksiNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   const num = Number(String(value).trim().replace(",", "."));
   if (Number.isNaN(num) || num <= 0) return 0;
-  return Math.round((num + Number.EPSILON) * 1000) / 1000;
+  return roundVolumeNumber(num, 3);
 };
 
 const collectSuratJalanIdsFromBA = (ba) => {
@@ -754,6 +762,8 @@ module.exports = {
                 ],
               },
               { model: pegawai },
+              getUserKPBPNInclude("userPK"),
+              getUserKPBPNInclude("userLab"),
             ],
           },
         ],
@@ -812,6 +822,27 @@ module.exports = {
 
       const konfirmasiIds = parseKonfirmasiIds(ids);
       if (konfirmasiIds.length) {
+        const validKonfirmasi = await konfirmasiPenerimaan.findAll({
+          where: { id: { [Op.in]: konfirmasiIds } },
+          include: [
+            {
+              model: suratJalan,
+              required: true,
+              attributes: ["id", "statusSuratJalanId"],
+              where: { statusSuratJalanId: 5 },
+            },
+          ],
+          transaction,
+        });
+
+        if (validKonfirmasi.length !== konfirmasiIds.length) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error:
+              "Hanya konfirmasi surat jalan berstatus BONGKAR yang dapat digunakan untuk pengisian tanki",
+          });
+        }
+
         await result.setKonfirmasiPenerimaans(konfirmasiIds, { transaction });
       }
 
@@ -868,8 +899,11 @@ module.exports = {
   getKonfirmasiPenerimaan: async (req, res) => {
     try {
       const whereCondition = {};
+      const availableForPengisian = isAvailableKonfirmasiQuery(
+        req.query.availableForPengisian,
+      );
 
-      if (isAvailableKonfirmasiQuery(req.query.availableForPengisian)) {
+      if (availableForPengisian) {
         const start = getLocalStartOfDaysAgo(2);
         whereCondition[Op.or] = [
           {
@@ -894,13 +928,20 @@ module.exports = {
         include: [
           {
             model: suratJalan,
+            required: availableForPengisian,
+            where: availableForPengisian
+              ? { statusSuratJalanId: 5 }
+              : undefined,
             include: [
               { model: mitra },
               { model: transportir },
+              { model: supir },
               { model: satuanVolume },
             ],
           },
           { model: pegawai },
+          getUserKPBPNInclude("userPK"),
+          getUserKPBPNInclude("userLab"),
           {
             model: pengisianTanki,
             through: { attributes: ["createdAt"] },
@@ -1365,7 +1406,10 @@ module.exports = {
       );
 
       const produksiBak3sBarrel = Number(bak3sData.produksi) || 0;
-      if (totalProduksiBarrel - produksiBak3sBarrel > 0.001) {
+      if (
+        roundVolumeNumber(totalProduksiBarrel, 3) >
+        roundVolumeNumber(produksiBak3sBarrel, 3)
+      ) {
         return res.status(400).json({
           error: `Total produksi tidak boleh lebih dari produksi BAK3S (${bak3sData.produksi} barrel)`,
         });

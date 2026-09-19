@@ -10,6 +10,14 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       this.belongsTo(models.suratJalan, { foreignKey: "suratJalanId" });
       this.belongsTo(models.pegawai, { foreignKey: "pegawaiId" });
+      this.belongsTo(models.userKPBPN, {
+        foreignKey: "userPKId",
+        as: "userPK",
+      });
+      this.belongsTo(models.userKPBPN, {
+        foreignKey: "userLabId",
+        as: "userLab",
+      });
       this.belongsToMany(models.pengisianTanki, {
         through: "pengisianTankiKonfirmasis",
         foreignKey: "konfirmasiPenerimaanId",
@@ -28,6 +36,9 @@ module.exports = (sequelize, DataTypes) => {
       api: DataTypes.DECIMAL(10, 3),
       BSNW: DataTypes.DECIMAL(10, 3),
       foto: DataTypes.STRING,
+      fotoLab: DataTypes.STRING,
+      userPKId: DataTypes.INTEGER,
+      userLabId: DataTypes.INTEGER,
     },
     {
       sequelize,

@@ -21,10 +21,19 @@ const {
   BABongkarTanki,
   ujiLabK3S,
   BAK3S,
+  userKPBPN,
   sequelize,
 } = require("../models");
 
 const { Op } = require("sequelize");
+const jwt = require("jsonwebtoken");
+const { isPetugasKeamananOnly } = require("../lib/auth");
+
+const rejectPetugasKeamanan = (req, res, message) => {
+  if (!isPetugasKeamananOnly(req)) return false;
+  res.status(403).json({ error: message });
+  return true;
+};
 const {
   buildSuratJalanDocxFromRecord,
   buildSuratJalanDownloadBaseName,
@@ -63,6 +72,35 @@ const convertVolumeToLiter = (volume, satuanName) => {
   return value;
 };
 
+const resolveUserKPBPNId = (req, bodyField) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "SECRET_KEY",
+      );
+      if (decoded?.id && Array.isArray(decoded.roleIds)) {
+        return decoded.id;
+      }
+    } catch (_) {
+      // Token tidak valid; fallback ke body
+    }
+  }
+
+  const fromField = parseInt(req.body?.[bodyField], 10);
+  if (Number.isInteger(fromField)) return fromField;
+
+  const fromGeneric = parseInt(req.body?.userKPBPNId, 10);
+  return Number.isInteger(fromGeneric) ? fromGeneric : null;
+};
+
+const getUserKPBPNInclude = (as) => ({
+  model: userKPBPN,
+  as,
+  attributes: ["id", "nama", "namaPengguna", "profilePic"],
+});
+
 const parseDecimalBody = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const normalized = String(value).trim().replace(",", ".");
@@ -70,10 +108,22 @@ const parseDecimalBody = (value) => {
   return Number.isNaN(num) ? null : num;
 };
 
+const roundVolumeNumber = (value, maxDecimals = 3) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 0;
+  const factor = 10 ** maxDecimals;
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+};
+
 const parseProduksiNumber = (value) => {
   const parsed = parseDecimalBody(value);
   if (parsed === null || parsed <= 0) return 0;
-  return Math.round((parsed + Number.EPSILON) * 1000) / 1000;
+  return roundVolumeNumber(parsed, 3);
+};
+
+const convertVolumeToBarrel = (volume, satuanName) => {
+  const liter = convertVolumeToLiter(volume, satuanName);
+  return roundVolumeNumber(liter / LITER_PER_BARREL, 3);
 };
 
 const deleteKonfirmasiFoto = (relativePath) => {
@@ -89,6 +139,12 @@ const deleteKonfirmasiFoto = (relativePath) => {
     }
   }
 };
+
+const getUploadedKonfirmasiFile = (req, fieldName) =>
+  req.files?.[fieldName]?.[0] || (fieldName === "foto" ? req.file : null) || null;
+
+const buildKonfirmasiFotoPath = (file) =>
+  file ? `/konfirmasi-penerimaan/${file.filename}` : null;
 
 module.exports = {
   getSuratJalan: async (req, res) => {
@@ -219,6 +275,16 @@ module.exports = {
   },
 
   addSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat menambah surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const {
       volume,
       satuanVolumeId,
@@ -348,6 +414,16 @@ module.exports = {
   },
 
   editSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat mengubah surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const id = parseInt(req.params.id, 10);
     const {
       nomor,
@@ -451,6 +527,16 @@ module.exports = {
   },
 
   deleteSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat menghapus surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const id = parseInt(req.params.id, 10);
 
     if (!id) {
@@ -514,6 +600,11 @@ module.exports = {
       });
 
       await transaction.commit();
+
+      for (const kp of konfirmasiList) {
+        deleteKonfirmasiFoto(kp.foto);
+        deleteKonfirmasiFoto(kp.fotoLab);
+      }
 
       try {
         const io = req.app.get("socketio");
@@ -638,6 +729,16 @@ module.exports = {
   },
 
   verifikasiSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat memverifikasi surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const id = req.params.id;
     const mitraId = parseInt(req.body.mitraId, 10);
 
@@ -720,6 +821,16 @@ module.exports = {
   },
 
   batalSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat membatalkan surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const id = parseInt(req.params.id, 10);
 
     if (!id) {
@@ -746,9 +857,10 @@ module.exports = {
         });
       }
 
-      if (existing.statusSuratJalanId === 3) {
+      if (existing.statusSuratJalanId === 3 || existing.statusSuratJalanId === 5) {
         return res.status(400).json({
-          error: "Surat jalan yang sudah tiba tidak dapat dibatalkan",
+          error:
+            "Surat jalan yang sudah tiba atau dibongkar tidak dapat dibatalkan",
         });
       }
 
@@ -809,6 +921,8 @@ module.exports = {
         where: { suratJalanId },
         include: [
           { model: pegawai },
+          getUserKPBPNInclude("userPK"),
+          getUserKPBPNInclude("userLab"),
           {
             model: suratJalan,
             include: [{ model: mitra }, { model: satuanVolume }],
@@ -833,22 +947,11 @@ module.exports = {
   },
 
   addKonfirmasiPenerimaan: async (req, res) => {
-    const { suratJalanId, tanggal, volume, pegawaiId, catatan, api, BSNW } =
-      req.body;
-
-    const apiValue = parseDecimalBody(api);
-    const bsnwValue = parseDecimalBody(BSNW);
+    const { suratJalanId, pegawaiId } = req.body;
     const parsedPegawaiId = pegawaiId ? parseInt(pegawaiId, 10) : null;
 
-    if (
-      !suratJalanId ||
-      !tanggal ||
-      volume === undefined ||
-      volume === "" ||
-      apiValue === null ||
-      bsnwValue === null
-    ) {
-      return res.status(400).json({ error: "Semua field wajib diisi" });
+    if (!suratJalanId) {
+      return res.status(400).json({ error: "Surat jalan wajib diisi" });
     }
 
     try {
@@ -863,24 +966,41 @@ module.exports = {
       if (suratJalanData.statusSuratJalanId !== 2) {
         return res.status(400).json({
           error:
-            "Konfirmasi hanya dapat dilakukan untuk surat jalan berstatus KIRIM",
+            "Konfirmasi kedatangan hanya dapat dilakukan untuk surat jalan berstatus KIRIM",
         });
       }
 
-      let foto = null;
-      if (req.file) {
-        foto = `/konfirmasi-penerimaan/${req.file.filename}`;
+      const existingKonfirmasi = await konfirmasiPenerimaan.findOne({
+        where: { suratJalanId: parseInt(suratJalanId, 10) },
+      });
+
+      if (existingKonfirmasi) {
+        return res.status(400).json({
+          error: "Konfirmasi penerimaan untuk surat jalan ini sudah ada",
+        });
+      }
+
+      const foto = buildKonfirmasiFotoPath(
+        getUploadedKonfirmasiFile(req, "foto"),
+      );
+      if (!foto) {
+        return res.status(400).json({
+          error: "Foto bukti penerimaan wajib diunggah",
+        });
       }
 
       const result = await konfirmasiPenerimaan.create({
         suratJalanId: parseInt(suratJalanId, 10),
-        tanggal: new Date(tanggal),
-        volume: parseInt(volume, 10),
+        tanggal: new Date(),
+        volume: null,
         pegawaiId: Number.isNaN(parsedPegawaiId) ? null : parsedPegawaiId,
-        catatan: catatan || null,
-        api: apiValue,
-        BSNW: bsnwValue,
+        catatan: null,
+        api: null,
+        BSNW: null,
         foto,
+        fotoLab: null,
+        userPKId: resolveUserKPBPNId(req, "userPKId"),
+        userLabId: null,
       });
 
       await suratJalan.update(
@@ -892,14 +1012,14 @@ module.exports = {
       await notifyDashboardChange(io, {
         type: "konfirmasi:created",
         title: "Konfirmasi Penerimaan",
-        description: `Konfirmasi penerimaan surat jalan #${suratJalanId} disimpan`,
+        description: `Konfirmasi kedatangan surat jalan #${suratJalanId} disimpan`,
         entity: "konfirmasiPenerimaan",
         entityId: result.id,
       });
 
       return res.status(200).json({
         success: true,
-        message: "Konfirmasi penerimaan berhasil disimpan",
+        message: "Konfirmasi kedatangan berhasil disimpan",
         result,
       });
     } catch (err) {
@@ -909,8 +1029,19 @@ module.exports = {
   },
 
   editKonfirmasiPenerimaan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan hanya dapat melakukan konfirmasi kedatangan",
+      )
+    ) {
+      return;
+    }
+
     const id = parseInt(req.params.id, 10);
-    const { tanggal, volume, pegawaiId, catatan, api, BSNW } = req.body;
+    const { tanggal, volume, pegawaiId, catatan, api, BSNW, tahap } = req.body;
+    const isBongkar = String(tahap || "").toLowerCase() === "bongkar";
 
     if (!id) {
       return res
@@ -943,20 +1074,43 @@ module.exports = {
           .json({ error: "Konfirmasi penerimaan tidak ditemukan" });
       }
 
-      if (existing.suratJalan?.statusSuratJalanId === 4) {
+      const statusId = existing.suratJalan?.statusSuratJalanId;
+
+      if (statusId === 4) {
         return res.status(400).json({
           error:
             "Konfirmasi penerimaan pada surat jalan BATAL tidak dapat diubah",
         });
       }
 
-      let foto = existing.foto;
-      if (req.file) {
-        deleteKonfirmasiFoto(existing.foto);
-        foto = `/konfirmasi-penerimaan/${req.file.filename}`;
+      if (isBongkar && statusId !== 3) {
+        return res.status(400).json({
+          error:
+            "Konfirmasi bongkar hanya dapat dilakukan untuk surat jalan berstatus TIBA",
+        });
       }
 
-      await existing.update({
+      let foto = existing.foto;
+      let fotoLab = existing.fotoLab;
+      const uploadedFoto = getUploadedKonfirmasiFile(req, "foto");
+      const uploadedFotoLab = getUploadedKonfirmasiFile(req, "fotoLab");
+
+      if (uploadedFoto) {
+        deleteKonfirmasiFoto(existing.foto);
+        foto = buildKonfirmasiFotoPath(uploadedFoto);
+      }
+      if (uploadedFotoLab) {
+        deleteKonfirmasiFoto(existing.fotoLab);
+        fotoLab = buildKonfirmasiFotoPath(uploadedFotoLab);
+      }
+
+      if (isBongkar && !fotoLab) {
+        return res.status(400).json({
+          error: "Foto lab wajib diunggah",
+        });
+      }
+
+      const updatePayload = {
         tanggal: new Date(tanggal),
         volume: parseInt(volume, 10),
         pegawaiId:
@@ -969,14 +1123,33 @@ module.exports = {
         api: apiValue,
         BSNW: bsnwValue,
         foto,
-      });
+        fotoLab,
+      };
+
+      if (isBongkar) {
+        updatePayload.userLabId =
+          resolveUserKPBPNId(req, "userLabId") ?? existing.userLabId;
+      }
+
+      await existing.update(updatePayload);
+
+      if (isBongkar && existing.suratJalanId) {
+        await suratJalan.update(
+          { statusSuratJalanId: 5 },
+          { where: { id: existing.suratJalanId } },
+        );
+      }
 
       try {
         const io = req.app.get("socketio");
         await notifyDashboardChange(io, {
-          type: "konfirmasi:updated",
-          title: "Konfirmasi Penerimaan Diperbarui",
-          description: `Konfirmasi penerimaan #${id} diperbarui`,
+          type: isBongkar ? "konfirmasi:bongkar" : "konfirmasi:updated",
+          title: isBongkar
+            ? "Konfirmasi Bongkar"
+            : "Konfirmasi Penerimaan Diperbarui",
+          description: isBongkar
+            ? `Konfirmasi bongkar #${id} disimpan`
+            : `Konfirmasi penerimaan #${id} diperbarui`,
           entity: "konfirmasiPenerimaan",
           entityId: id,
         });
@@ -989,7 +1162,9 @@ module.exports = {
 
       return res.status(200).json({
         success: true,
-        message: "Konfirmasi penerimaan berhasil diperbarui",
+        message: isBongkar
+          ? "Konfirmasi bongkar berhasil disimpan"
+          : "Konfirmasi penerimaan berhasil diperbarui",
         result: existing,
       });
     } catch (err) {
@@ -1075,18 +1250,23 @@ module.exports = {
         }))
         .filter((item) => item.sumurMinyakId && item.produksi > 0);
 
-      const totalProduksiLiter = normalizedItems.reduce(
-        (sum, item) =>
-          sum + convertVolumeToLiter(item.produksi, satuanProduksi.satuan),
-        0,
+      const totalProduksiBarrel = roundVolumeNumber(
+        normalizedItems.reduce(
+          (sum, item) =>
+            sum +
+            convertVolumeToLiter(item.produksi, satuanProduksi.satuan) /
+              LITER_PER_BARREL,
+          0,
+        ),
+        3,
       );
 
-      const volumeSuratJalanLiter = convertVolumeToLiter(
+      const volumeSuratJalanBarrel = convertVolumeToBarrel(
         suratJalanData.volume,
         suratJalanData.satuanVolume?.satuan || "barrel",
       );
 
-      if (Math.abs(totalProduksiLiter - volumeSuratJalanLiter) >= 0.001) {
+      if (totalProduksiBarrel !== volumeSuratJalanBarrel) {
         return res.status(400).json({
           error: `Total produksi harus sama dengan volume surat jalan (${suratJalanData.volume} ${suratJalanData.satuanVolume?.satuan || ""})`,
         });
@@ -1193,6 +1373,16 @@ module.exports = {
   },
 
   deleteAllSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat menghapus data",
+      )
+    ) {
+      return;
+    }
+
     const transaction = await sequelize.transaction();
 
     try {
@@ -1429,6 +1619,16 @@ module.exports = {
   },
 
   getDetailSuratJalan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat melihat detail surat jalan",
+      )
+    ) {
+      return;
+    }
+
     const id = parseInt(req.params.id, 10);
 
     if (!id) {
@@ -1461,6 +1661,8 @@ module.exports = {
                 model: pegawai,
                 attributes: ["id", "nama", "nip", "jabatan"],
               },
+              getUserKPBPNInclude("userPK"),
+              getUserKPBPNInclude("userLab"),
               {
                 model: pengisianTanki,
                 through: { attributes: [] },
@@ -1561,8 +1763,20 @@ module.exports = {
           },
           {
             model: konfirmasiPenerimaan,
-            attributes: ["tanggal", "volume", "catatan", "api", "BSNW", "foto"],
-            include: [{ model: pegawai, attributes: ["nama"] }],
+            attributes: [
+              "tanggal",
+              "volume",
+              "catatan",
+              "api",
+              "BSNW",
+              "foto",
+              "fotoLab",
+            ],
+            include: [
+              { model: pegawai, attributes: ["nama"] },
+              getUserKPBPNInclude("userPK"),
+              getUserKPBPNInclude("userLab"),
+            ],
           },
         ],
         order: [

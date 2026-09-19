@@ -51,6 +51,7 @@ const icpControllers = require("./icpControllers");
 const userKPBPNControllers = require("./userKPBPNControllers");
 const dashboardControllers = require("./DashboardControllers");
 const stockOpnameTankiControllers = require("./stockOpnameTankiControllers");
+const laporanKPBPNControllers = require("./laporanKPBPNControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -104,4 +105,5 @@ module.exports = {
   userKPBPNControllers,
   dashboardControllers,
   stockOpnameTankiControllers,
+  laporanKPBPNControllers,
 };

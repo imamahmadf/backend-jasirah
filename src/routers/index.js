@@ -52,6 +52,7 @@ const dashboardRouter = require("./dashboardRouter");
 const templateKPBPNRouter = require("./templateKPBPNRouter");
 const stockOpnameTankiRouter = require("./stockOpnameTankiRouter");
 const nomorSuratKPBPNRouter = require("./nomorSuratKPBPNRouter");
+const laporanKPBPNRouter = require("./laporanKPBPNRouter");
 
 module.exports = {
   perjalananRouter,
@@ -108,4 +109,5 @@ module.exports = {
   templateKPBPNRouter,
   stockOpnameTankiRouter,
   nomorSuratKPBPNRouter,
+  laporanKPBPNRouter,
 };

@@ -13,6 +13,14 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.pengisianTanki, { foreignKey: "userKPBPNId" });
       this.hasMany(models.BABongkar, { foreignKey: "userKPBPNId" });
       this.hasMany(models.BAK3S, { foreignKey: "userKPBPNId" });
+      this.hasMany(models.konfirmasiPenerimaan, {
+        foreignKey: "userPKId",
+        as: "konfirmasiPenerimaanPK",
+      });
+      this.hasMany(models.konfirmasiPenerimaan, {
+        foreignKey: "userLabId",
+        as: "konfirmasiPenerimaanLab",
+      });
     }
   }
   userKPBPN.init(

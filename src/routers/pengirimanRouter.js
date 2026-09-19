@@ -15,22 +15,23 @@ routers.get("/get/cetak/:id", pengirimanControllers.cetakSuratJalan);
 routers.post("/post", pengirimanControllers.addSuratJalan);
 routers.post("/edit/:id", pengirimanControllers.editSuratJalan);
 routers.post("/delete/:id", pengirimanControllers.deleteSuratJalan);
+const konfirmasiFotoUploader = fileUploader({
+  destinationFolder: "konfirmasi-penerimaan",
+  fileType: "image",
+  prefix: "FOTO-KONFIRMASI",
+}).fields([
+  { name: "foto", maxCount: 1 },
+  { name: "fotoLab", maxCount: 1 },
+]);
+
 routers.post(
   "/post/konfirmasi",
-  fileUploader({
-    destinationFolder: "konfirmasi-penerimaan",
-    fileType: "image",
-    prefix: "FOTO-KONFIRMASI",
-  }).single("foto"),
+  konfirmasiFotoUploader,
   pengirimanControllers.addKonfirmasiPenerimaan,
 );
 routers.post(
   "/edit/konfirmasi/:id",
-  fileUploader({
-    destinationFolder: "konfirmasi-penerimaan",
-    fileType: "image",
-    prefix: "FOTO-KONFIRMASI",
-  }).single("foto"),
+  konfirmasiFotoUploader,
   pengirimanControllers.editKonfirmasiPenerimaan,
 );
 routers.get(
