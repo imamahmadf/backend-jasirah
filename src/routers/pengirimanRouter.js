@@ -4,6 +4,7 @@ const fileUploader = require("../middleware/uploader");
 
 const routers = express.Router();
 
+routers.get("/public/:kode", pengirimanControllers.getSuratJalanByVerifikasi);
 routers.get("/get", pengirimanControllers.getSuratJalan);
 routers.get(
   "/get/konfirmasi/:suratJalanId",

@@ -46,6 +46,7 @@ const tankiRouter = require("./tankiRouter");
 const sumurMinyakRouter = require("./sumurMinyakRouter");
 const stasiunPengumpulMinyakRouter = require("./stasiunPengumpulMinyakRouter");
 const asalMinyakRouter = require("./asalMinyakRouter");
+const icpRouter = require("./icpRouter");
 const userKPBPNRouter = require("./userKPBPNRouter");
 const dashboardRouter = require("./dashboardRouter");
 const templateKPBPNRouter = require("./templateKPBPNRouter");
@@ -101,6 +102,7 @@ module.exports = {
   sumurMinyakRouter,
   stasiunPengumpulMinyakRouter,
   asalMinyakRouter,
+  icpRouter,
   userKPBPNRouter,
   dashboardRouter,
   templateKPBPNRouter,

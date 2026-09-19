@@ -15,6 +15,7 @@ const roleKPBPNs = [
     updatedAt: currentDate,
   },
   { id: 3, name: "Mitra", createdAt: currentDate, updatedAt: currentDate },
+  { id: 4, name: "Keuangan", createdAt: currentDate, updatedAt: currentDate },
 ];
 
 /** @type {import('sequelize-cli').Migration} */

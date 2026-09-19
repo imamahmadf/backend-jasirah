@@ -1,3 +1,4 @@
+const path = require("path");
 const { Op } = require("sequelize");
 const {
   sumurMinyak,
@@ -8,6 +9,8 @@ const {
   userKPBPN,
 } = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
+const { env } = require("../config");
 
 const ROLE_SUPER_ADMIN = 1;
 const ROLE_ADMIN = 2;
@@ -37,6 +40,61 @@ const canAccessSumur = (sumur, scope) => {
   if (!scope.mitraId || !sumur) return false;
   return Number(sumur.mitraId) === Number(scope.mitraId);
 };
+
+const sanitizeDownloadFileName = (name) =>
+  String(name || "")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getFrontendBaseUrl = () => {
+  const isProduction = env.NODE_ENV === "production";
+  const raw = isProduction
+    ? env.APP_BASE_URL_PROD || "https://jasirahcore.cloud/"
+    : env.APP_BASE_URL_DEV || "https://jasirahcore.cloud/";
+  return String(raw).replace(/\/+$/, "");
+};
+
+const createKodeQr = () =>
+  (
+    Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
+  ).toUpperCase();
+
+const ensureKodeQr = async (sumur) => {
+  if (sumur.kodeQr) return sumur.kodeQr;
+
+  let kodeQr = createKodeQr();
+  let exists = await sumurMinyak.findOne({ where: { kodeQr } });
+  while (exists) {
+    kodeQr = createKodeQr();
+    exists = await sumurMinyak.findOne({ where: { kodeQr } });
+  }
+
+  await sumurMinyak.update({ kodeQr }, { where: { id: sumur.id } });
+  return kodeQr;
+};
+
+const PUBLIC_SUMUR_ATTRIBUTES = [
+  "nama",
+  "nomor",
+  "foto",
+  "statusVerifikasi",
+  "tanggalVerifikasi",
+  "longitude",
+  "latitude",
+  "alamat",
+  "produksiHarian",
+  "area",
+  "operasional",
+  "lingkungan",
+  "penyaluran",
+  "statusKepemilikan",
+  "tingkatProduksi",
+  "namaPemilikLahan",
+  "namaPemilikSumur",
+  "kontakPemilikLahan",
+  "kontakPemilikSumur",
+];
 
 const parseOptionalInt = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -512,6 +570,101 @@ module.exports = {
       });
 
       return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  generateQrCodeSumur: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res.status(400).json({ error: "ID sumur minyak tidak valid" });
+    }
+
+    try {
+      const result = await sumurMinyak.findByPk(id, {
+        include: [{ model: mitra }],
+      });
+
+      if (!result) {
+        return res.status(404).json({ error: "Sumur minyak tidak ditemukan" });
+      }
+
+      const scope = await resolveMitraScope(req);
+      if (!canAccessSumur(result, scope)) {
+        return res
+          .status(403)
+          .json({ error: "Anda tidak memiliki akses ke sumur ini" });
+      }
+
+      const kodeQr = await ensureKodeQr(result);
+      const qrPath = `/qr-sumur/${kodeQr}`;
+      const qrUrl = `${getFrontendBaseUrl()}${qrPath}`;
+      const logoPath = path.join(
+        __dirname,
+        "../public/surat-jalan/logoKPBPN.png",
+      );
+      const qrDataUrl = await generateQrWithLogo(qrUrl, {
+        sizePx: 400,
+        logoPath,
+        logoScale: 0.3,
+      });
+
+      const label = [result.nama, result.nomor].filter(Boolean).join("_");
+      const fileName = sanitizeDownloadFileName(
+        `QR_Sumur_${label || kodeQr}.png`,
+      );
+
+      return res.status(200).json({
+        success: true,
+        kode: kodeQr,
+        path: qrPath,
+        url: qrUrl,
+        qrCode: qrDataUrl,
+        fileName,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getSumurByKodeQr: async (req, res) => {
+    const kode = String(req.params.kode || "").trim();
+
+    if (!kode) {
+      return res.status(400).json({ error: "Kode QR tidak valid" });
+    }
+
+    try {
+      const result = await sumurMinyak.findOne({
+        where: { kodeQr: kode },
+        attributes: ["id", ...PUBLIC_SUMUR_ATTRIBUTES],
+        include: [{ model: mitra, attributes: ["nama"] }],
+      });
+
+      if (!result) {
+        return res.status(404).json({ error: "Data sumur tidak ditemukan" });
+      }
+
+      const produksi = await produksiSumur.findAll({
+        where: { sumurMinyakId: result.id },
+        limit: 10,
+        order: [["tanggal", "DESC"]],
+        attributes: ["produksi", "tanggal"],
+        include: [{ model: satuanVolume, attributes: ["satuan"] }],
+      });
+
+      const publicSumur = result.toJSON();
+      delete publicSumur.id;
+
+      return res.status(200).json({
+        success: true,
+        result: publicSumur,
+        produksi,
+      });
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });

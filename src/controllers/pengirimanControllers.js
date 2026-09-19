@@ -832,13 +832,13 @@ module.exports = {
 
     const apiValue = parseDecimalBody(api);
     const bsnwValue = parseDecimalBody(BSNW);
+    const parsedPegawaiId = pegawaiId ? parseInt(pegawaiId, 10) : null;
 
     if (
       !suratJalanId ||
       !tanggal ||
       volume === undefined ||
       volume === "" ||
-      !pegawaiId ||
       apiValue === null ||
       bsnwValue === null
     ) {
@@ -870,7 +870,7 @@ module.exports = {
         suratJalanId: parseInt(suratJalanId, 10),
         tanggal: new Date(tanggal),
         volume: parseInt(volume, 10),
-        pegawaiId: parseInt(pegawaiId, 10),
+        pegawaiId: Number.isNaN(parsedPegawaiId) ? null : parsedPegawaiId,
         catatan: catatan || null,
         api: apiValue,
         BSNW: bsnwValue,
@@ -914,12 +914,12 @@ module.exports = {
 
     const apiValue = parseDecimalBody(api);
     const bsnwValue = parseDecimalBody(BSNW);
+    const parsedPegawaiId = pegawaiId ? parseInt(pegawaiId, 10) : null;
 
     if (
       !tanggal ||
       volume === undefined ||
       volume === "" ||
-      !pegawaiId ||
       apiValue === null ||
       bsnwValue === null
     ) {
@@ -953,7 +953,12 @@ module.exports = {
       await existing.update({
         tanggal: new Date(tanggal),
         volume: parseInt(volume, 10),
-        pegawaiId: parseInt(pegawaiId, 10),
+        pegawaiId:
+          pegawaiId === undefined || pegawaiId === null || pegawaiId === ""
+            ? existing.pegawaiId
+            : Number.isNaN(parsedPegawaiId)
+              ? existing.pegawaiId
+              : parsedPegawaiId,
         catatan: catatan || null,
         api: apiValue,
         BSNW: bsnwValue,
@@ -1499,6 +1504,78 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
+    }
+  },
+
+  getSuratJalanByVerifikasi: async (req, res) => {
+    const kode = String(req.params.kode || "").trim();
+
+    if (!kode) {
+      return res.status(400).json({ error: "Kode verifikasi tidak valid" });
+    }
+
+    try {
+      const result = await suratJalan.findOne({
+        where: { verifikasi: kode },
+        attributes: [
+          "nomor",
+          "tanggal",
+          "volume",
+          "jamDatang",
+          "jamPergi",
+          "verifikasi",
+        ],
+        include: [
+          {
+            model: mitra,
+            attributes: ["nama", "alamat", "kontak", "penanggungJawab"],
+            include: [{ model: jenisMitra, attributes: ["jenis"] }],
+          },
+          {
+            model: transportir,
+            attributes: ["plat", "kapasitas", "foto"],
+            include: [
+              { model: jenisTransportir, attributes: ["jenis"] },
+              { model: satuanVolume, attributes: ["satuan"] },
+            ],
+          },
+          { model: supir, attributes: ["nama", "foto"] },
+          { model: daftarUnitKerja, attributes: ["unitKerja"] },
+          { model: stasiunPengumpulMinyak, attributes: ["nama"] },
+          { model: asalMinyak, attributes: ["nomor", "asal"] },
+          { model: statusSuratJalan, attributes: ["status"] },
+          { model: satuanVolume, attributes: ["satuan"] },
+          {
+            model: produksiSumur,
+            attributes: ["produksi", "tanggal"],
+            include: [
+              { model: sumurMinyak, attributes: ["nama", "nomor"] },
+              { model: satuanVolume, attributes: ["satuan"] },
+            ],
+          },
+          {
+            model: konfirmasiPenerimaan,
+            attributes: ["tanggal", "volume", "catatan", "api", "BSNW", "foto"],
+            include: [{ model: pegawai, attributes: ["nama"] }],
+          },
+        ],
+        order: [
+          [produksiSumur, "tanggal", "DESC"],
+          [konfirmasiPenerimaan, "tanggal", "DESC"],
+        ],
+      });
+
+      if (!result) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      return res.status(200).json({
+        success: true,
+        result,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
     }
   },
 };

@@ -4,6 +4,7 @@ const fileUploader = require("../middleware/uploader");
 const { authenticateUser } = require("../lib/auth");
 const routers = express.Router();
 
+routers.get("/public/:kode", sumurMinyakControllers.getSumurByKodeQr);
 routers.get("/get", authenticateUser, sumurMinyakControllers.getSumurMinyak);
 routers.get(
   "/get/detail/:id",
@@ -14,6 +15,11 @@ routers.get(
   "/get/produksi/:sumurMinyakId",
   authenticateUser,
   sumurMinyakControllers.getProduksiSumurBySumurMinyak,
+);
+routers.get(
+  "/get/qrcode/:id",
+  authenticateUser,
+  sumurMinyakControllers.generateQrCodeSumur,
 );
 routers.post(
   "/post",

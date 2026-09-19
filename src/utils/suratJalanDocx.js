@@ -158,14 +158,16 @@ async function buildSuratJalanDocxFromRecord(
   }
 
   const isProduction = env.NODE_ENV === "production";
-  const baseUrl = isProduction
-    ? env.APP_BASE_URL_PROD || "https://jasirahcore.cloud/"
-    : env.APP_BASE_URL_DEV || "https://jasirahcore.cloud/";
+  const baseUrl = (
+    isProduction
+      ? env.APP_BASE_URL_PROD || "https://jasirahcore.cloud/"
+      : env.APP_BASE_URL_DEV || "https://jasirahcore.cloud/"
+  ).replace(/\/+$/, "");
 
   const logoPath = path.join(__dirname, "../public/surat-jalan/logoKPBPN.png");
 
   const qrDataUrl = await generateQrWithLogo(
-    `${baseUrl}/verifikasi/${verifikasiCode}`,
+    `${baseUrl}/qr-surat-jalan/${verifikasiCode}`,
     { sizePx: 400, logoPath, logoScale: 0.3 },
   );
 
@@ -193,24 +195,10 @@ function sanitizeDownloadFileName(name) {
     .trim();
 }
 
-function getRomanMonthFromDate(date) {
-  const months = [
-    "I",
-    "II",
-    "III",
-    "IV",
-    "V",
-    "VI",
-    "VII",
-    "VIII",
-    "IX",
-    "X",
-    "XI",
-    "XII",
-  ];
+function getMonthNameFromDate(date) {
   const d = date ? new Date(date) : new Date();
   if (Number.isNaN(d.getTime())) return "-";
-  return months[d.getMonth()] || "-";
+  return (BULAN[d.getMonth()] || "-").toUpperCase();
 }
 
 function buildSuratJalanDownloadBaseName(record) {
@@ -229,7 +217,7 @@ function buildSuratJalanDownloadBaseName(record) {
   }
 
   const kodeMitra = String(record?.mitra?.kode || "").trim() || "KODE";
-  const bulan = getRomanMonthFromDate(record?.tanggal);
+  const bulan = getMonthNameFromDate(record?.tanggal);
 
   return sanitizeDownloadFileName(
     `${nomorSurat}_${kodeMitra}_${bulan}_Surat Jalan Pengiriman Minyak Bumi`,

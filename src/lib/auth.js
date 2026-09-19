@@ -46,9 +46,24 @@ const authorizeRole = (roles) => {
   };
 };
 
+const authorizeKpbpnRoles = (roles) => {
+  return (req, res, next) => {
+    const userRoleIds = (req.user?.roleIds || []).map(Number);
+    const hasRole = roles.some((roleId) => userRoleIds.includes(Number(roleId)));
+    if (!hasRole) {
+      return res.status(403).json({
+        message: "Forbidden: Insufficient permissions",
+        error: "Anda tidak memiliki akses",
+      });
+    }
+    next();
+  };
+};
+
 module.exports = {
   authenticateUser,
   authorizeRole,
+  authorizeKpbpnRoles,
   isTokenBlacklisted,
   blacklistedTokens,
 };
