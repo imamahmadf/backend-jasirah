@@ -18,6 +18,21 @@ router.get("/check-auth", authenticateUser, (req, res) => {
   res.json({ isAuthenticated: true, user: req.user });
 });
 router.get("/profile/:id", userKPBPNControllers.getProfile);
+router.put(
+  "/update-profile",
+  authenticateUser,
+  userKPBPNControllers.updateProfile,
+);
+router.post(
+  "/profile/photo",
+  authenticateUser,
+  fileUploader({
+    destinationFolder: "profile",
+    fileType: "image",
+    prefix: "PROFILE",
+  }).single("photo"),
+  userKPBPNControllers.uploadProfilePhoto,
+);
 router.post(
   "/change-password",
   authenticateUser,

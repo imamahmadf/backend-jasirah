@@ -17,6 +17,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "BABongkarId",
         as: "BAK3S",
       });
+      this.belongsTo(models.userKPBPN, { foreignKey: "userKPBPNId" });
     }
   }
   BABongkar.init(
@@ -24,6 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       tanggal: DataTypes.DATE,
       ukuranCairan: DataTypes.INTEGER,
       ukuranAir: DataTypes.INTEGER,
+      userKPBPNId: DataTypes.INTEGER,
     },
     {
       sequelize,

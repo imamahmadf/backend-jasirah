@@ -54,6 +54,15 @@ routers.post(
   tankiControllers.editBAK3S,
 );
 routers.post("/delete/bak3s/:id", tankiControllers.deleteBAK3S);
+routers.get("/get/bak3s/:id", tankiControllers.getDetailBAK3S);
+routers.get(
+  "/get/produksi-sumur-k3s/:BAK3SId",
+  tankiControllers.getProduksiSumurK3S,
+);
+routers.post(
+  "/post/produksi-sumur-k3s",
+  tankiControllers.saveProduksiSumurK3S,
+);
 routers.post("/post", tankiControllers.postPengisianTanki);
 routers.post("/edit/:id", tankiControllers.editPengisianTanki);
 routers.post("/delete/:id", tankiControllers.deletePengisianTanki);

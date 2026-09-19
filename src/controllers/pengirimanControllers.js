@@ -70,6 +70,12 @@ const parseDecimalBody = (value) => {
   return Number.isNaN(num) ? null : num;
 };
 
+const parseProduksiNumber = (value) => {
+  const parsed = parseDecimalBody(value);
+  if (parsed === null || parsed <= 0) return 0;
+  return Math.round((parsed + Number.EPSILON) * 1000) / 1000;
+};
+
 const deleteKonfirmasiFoto = (relativePath) => {
   if (!relativePath) return;
   const normalized = String(relativePath).replace(/^[/\\]+/, "");
@@ -1065,7 +1071,7 @@ module.exports = {
       const normalizedItems = items
         .map((item) => ({
           sumurMinyakId: parseInt(item.sumurMinyakId, 10),
-          produksi: parseInt(item.produksi, 10) || 0,
+          produksi: parseProduksiNumber(item.produksi),
         }))
         .filter((item) => item.sumurMinyakId && item.produksi > 0);
 

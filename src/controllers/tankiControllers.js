@@ -13,19 +13,49 @@ const {
   BABongkarTanki,
   ujiLabK3S,
   BAK3S,
+  produksiSumur,
+  produksiSumurK3S,
+  sumurMinyak,
   nomorSuratKPBPN,
   jenisMitra,
   satuanVolume,
+  userKPBPN,
   sequelize,
 } = require("../models");
 
 const { Op } = require("sequelize");
+const jwt = require("jsonwebtoken");
 const PizZip = require("pizzip");
 const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
 const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+
+const resolveUserKPBPNId = (req) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "SECRET_KEY",
+      );
+      if (decoded?.id && Array.isArray(decoded.roleIds)) {
+        return decoded.id;
+      }
+    } catch (_) {
+      // Token tidak valid; fallback ke body
+    }
+  }
+
+  const fromBody = parseInt(req.body?.userKPBPNId, 10);
+  return Number.isInteger(fromBody) ? fromBody : null;
+};
+
+const getUserKPBPNInclude = () => ({
+  model: userKPBPN,
+  attributes: ["id", "nama", "namaPengguna", "profilePic"],
+});
 
 const pengisianIncludeForBA = [
   { model: tanki },
@@ -236,6 +266,7 @@ const parseUkuranBA = (ukuranCairan, ukuranAir) => {
 
 const LITER_PER_BARREL = 158.987;
 const LITER_PER_DRUM = 200;
+const SUMBER_SATUAN_DEFAULT = "drum";
 
 const convertVolumeToBarrel = (volume, satuanName) => {
   const value = Number(volume);
@@ -248,6 +279,153 @@ const convertVolumeToBarrel = (volume, satuanName) => {
   if (satuan === "drum") return (value * LITER_PER_DRUM) / LITER_PER_BARREL;
 
   return value;
+};
+
+const convertVolumeFromBarrel = (volumeBarrel, satuanName) => {
+  const value = Number(volumeBarrel);
+  if (Number.isNaN(value)) return 0;
+
+  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+
+  if (satuan === "liter") return value * LITER_PER_BARREL;
+  if (satuan === "drum") return (value * LITER_PER_BARREL) / LITER_PER_DRUM;
+  return value;
+};
+
+const parseProduksiNumber = (value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  const num = Number(String(value).trim().replace(",", "."));
+  if (Number.isNaN(num) || num <= 0) return 0;
+  return Math.round((num + Number.EPSILON) * 1000) / 1000;
+};
+
+const collectSuratJalanIdsFromBA = (ba) => {
+  const ids = new Set();
+
+  for (const pt of ba?.pengisianTankis || []) {
+    for (const kp of pt.konfirmasiPenerimaans || []) {
+      const sjId = kp.suratJalan?.id || kp.suratJalanId;
+      if (sjId) ids.add(Number(sjId));
+    }
+  }
+
+  return Array.from(ids).filter((id) => Number.isInteger(id) && id > 0);
+};
+
+const pickDominantSatuanVolumeId = (records) => {
+  const counts = new Map();
+
+  for (const rec of records || []) {
+    if (!rec.satuanVolumeId) continue;
+    counts.set(
+      rec.satuanVolumeId,
+      (counts.get(rec.satuanVolumeId) || 0) + 1,
+    );
+  }
+
+  let dominant = null;
+  let maxCount = 0;
+  for (const [id, count] of counts.entries()) {
+    if (count > maxCount) {
+      maxCount = count;
+      dominant = id;
+    }
+  }
+
+  return dominant;
+};
+
+const collectDefaultProduksiFromSumber = (records, targetSatuanName) => {
+  const barrelBySumur = new Map();
+  const satuanTujuan = targetSatuanName || SUMBER_SATUAN_DEFAULT;
+
+  for (const rec of records || []) {
+    const sumurId = rec.sumurMinyakId;
+    if (!sumurId) continue;
+
+    const satuanAsal = rec.satuanVolume?.satuan || SUMBER_SATUAN_DEFAULT;
+    const barrel = convertVolumeToBarrel(rec.produksi, satuanAsal);
+    barrelBySumur.set(sumurId, (barrelBySumur.get(sumurId) || 0) + barrel);
+  }
+
+  return Array.from(barrelBySumur.entries())
+    .map(([sumurMinyakId, barrel]) => ({
+      sumurMinyakId,
+      produksi: parseProduksiNumber(
+        convertVolumeFromBarrel(barrel, satuanTujuan),
+      ),
+    }))
+    .filter((item) => item.produksi > 0);
+};
+
+const bak3sPengisianInclude = [
+  { model: tanki, attributes: ["id", "kode", "factorTank"] },
+  { model: satuanVolume },
+  {
+    model: konfirmasiPenerimaan,
+    through: { attributes: [] },
+    include: [
+      {
+        model: suratJalan,
+        attributes: ["id", "nomor", "mitraId", "satuanVolumeId", "volume"],
+        include: [
+          { model: mitra, attributes: ["id", "nama"] },
+          { model: satuanVolume },
+        ],
+      },
+    ],
+  },
+];
+
+const collectRelatedMitraFromBA = (ba) => {
+  const mitraMap = new Map();
+  let defaultSatuanVolumeId = null;
+  let defaultSatuanName = null;
+
+  for (const pt of ba?.pengisianTankis || []) {
+    if (!defaultSatuanVolumeId && pt.satuanVolumeId) {
+      defaultSatuanVolumeId = pt.satuanVolumeId;
+      defaultSatuanName = pt.satuanVolume?.satuan || null;
+    }
+
+    for (const kp of pt.konfirmasiPenerimaans || []) {
+      const sj = kp.suratJalan;
+      if (sj?.mitra?.id && !mitraMap.has(sj.mitra.id)) {
+        mitraMap.set(sj.mitra.id, {
+          id: sj.mitra.id,
+          nama: sj.mitra.nama,
+        });
+      } else if (sj?.mitraId && !mitraMap.has(sj.mitraId)) {
+        mitraMap.set(sj.mitraId, { id: sj.mitraId, nama: null });
+      }
+
+      if (!defaultSatuanVolumeId && sj?.satuanVolumeId) {
+        defaultSatuanVolumeId = sj.satuanVolumeId;
+        defaultSatuanName = sj.satuanVolume?.satuan || null;
+      }
+    }
+  }
+
+  return {
+    relatedMitra: Array.from(mitraMap.values()),
+    relatedMitraIds: Array.from(mitraMap.keys()),
+    defaultSatuanVolumeId,
+    defaultSatuanName,
+  };
+};
+
+const loadBAK3SForProduksi = async (BAK3SId) => {
+  return BAK3S.findByPk(BAK3SId, {
+    include: [
+      getUserKPBPNInclude(),
+      {
+        model: BABongkar,
+        include: [
+          { model: pengisianTanki, include: bak3sPengisianInclude },
+        ],
+      },
+    ],
+  });
 };
 
 const roundBarrelVolume = (value) =>
@@ -417,7 +595,7 @@ const parseTankiBAPayload = (body) => {
   ];
 };
 
-const generateBABongkarBuffer = (tanggal, data) => {
+const generateBABongkarBuffer = (tanggal, data, extras = {}) => {
   const templatePath = path.join(
     __dirname,
     "../public/BAST/BABongkar-template.docx",
@@ -443,6 +621,7 @@ const generateBABongkarBuffer = (tanggal, data) => {
       minute: "2-digit",
     }),
     data,
+    pembuat: extras.pembuat ?? "-",
   });
 
   return doc.getZip().generate({ type: "nodebuffer" });
@@ -513,9 +692,11 @@ module.exports = {
             as: "ujiLabK3S",
             include: [{ model: tanki, attributes: ["id", "kode"] }],
           },
+          getUserKPBPNInclude(),
           {
             model: BAK3S,
             as: "BAK3S",
+            include: [getUserKPBPNInclude()],
           },
         ],
       });
@@ -558,6 +739,7 @@ module.exports = {
             include: [{ model: BABongkarTanki }],
           },
           { model: satuanVolume },
+          getUserKPBPNInclude(),
           {
             model: konfirmasiPenerimaan,
             through: { attributes: [] },
@@ -606,6 +788,7 @@ module.exports = {
       satuanVolumeId,
       ids,
     } = req.body;
+    const userKPBPNId = resolveUserKPBPNId(req);
     const transaction = await sequelize.transaction();
     try {
       const result = await pengisianTanki.create(
@@ -622,6 +805,7 @@ module.exports = {
           catatan,
           saksi,
           satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
+          userKPBPNId,
         },
         { transaction },
       );
@@ -895,6 +1079,7 @@ module.exports = {
         BSNW: parsed.BSNW,
         produksi: parsed.produksi,
         sg: parsed.sg,
+        userKPBPNId: resolveUserKPBPNId(req),
       });
 
       const io = req.app.get("socketio");
@@ -988,6 +1173,249 @@ module.exports = {
       });
 
       return res.status(200).json({ message: "BAK3S berhasil dihapus" });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getDetailBAK3S: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      return res.status(400).json({ error: "ID BAK3S tidak valid" });
+    }
+
+    try {
+      const result = await BAK3S.findByPk(id, {
+        include: [
+          getUserKPBPNInclude(),
+          {
+            model: produksiSumurK3S,
+            as: "produksiSumurK3S",
+            include: [
+              {
+                model: sumurMinyak,
+                include: [{ model: mitra, attributes: ["id", "nama"] }],
+              },
+              { model: satuanVolume },
+            ],
+          },
+          {
+            model: BABongkar,
+            include: [
+              getUserKPBPNInclude(),
+              {
+                model: BABongkarTanki,
+                include: [{ model: tanki, attributes: ["id", "kode"] }],
+              },
+              {
+                model: ujiLabK3S,
+                as: "ujiLabK3S",
+                include: [{ model: tanki, attributes: ["id", "kode"] }],
+              },
+              { model: pengisianTanki, include: bak3sPengisianInclude },
+            ],
+          },
+        ],
+        order: [
+          [{ model: produksiSumurK3S, as: "produksiSumurK3S" }, "id", "ASC"],
+        ],
+      });
+
+      if (!result) {
+        return res.status(404).json({ error: "BAK3S tidak ditemukan" });
+      }
+
+      return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getProduksiSumurK3S: async (req, res) => {
+    const BAK3SId = parseInt(req.params.BAK3SId, 10);
+    if (!BAK3SId) {
+      return res.status(400).json({ error: "ID BAK3S tidak valid" });
+    }
+
+    try {
+      const bak3sData = await loadBAK3SForProduksi(BAK3SId);
+      if (!bak3sData) {
+        return res.status(404).json({ error: "BAK3S tidak ditemukan" });
+      }
+
+      const related = collectRelatedMitraFromBA(bak3sData.BABongkar);
+      const suratJalanIds = collectSuratJalanIdsFromBA(bak3sData.BABongkar);
+
+      const [resultSumurMinyak, resultProduksi, resultSatuanVolume, resultProduksiSumber] =
+        await Promise.all([
+          related.relatedMitraIds.length
+            ? sumurMinyak.findAll({
+                where: { mitraId: related.relatedMitraIds },
+                include: [{ model: mitra, attributes: ["id", "nama"] }],
+                order: [["nama", "ASC"]],
+              })
+            : [],
+          produksiSumurK3S.findAll({
+            where: { BAK3SId },
+            include: [
+              {
+                model: sumurMinyak,
+                include: [{ model: mitra, attributes: ["id", "nama"] }],
+              },
+              { model: satuanVolume },
+            ],
+            order: [["id", "ASC"]],
+          }),
+          satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
+          suratJalanIds.length
+            ? produksiSumur.findAll({
+                where: { suratJalanId: suratJalanIds },
+                include: [{ model: satuanVolume }],
+              })
+            : [],
+        ]);
+
+      const savedSatuanVolumeId = resultProduksi.find(
+        (item) => item.satuanVolumeId,
+      )?.satuanVolumeId;
+      const sumberSatuanVolumeId =
+        pickDominantSatuanVolumeId(resultProduksiSumber);
+      const drumSatuan = resultSatuanVolume.find(
+        (item) => String(item.satuan || "").trim().toLowerCase() === "drum",
+      );
+      const defaultSatuanVolumeId =
+        savedSatuanVolumeId ||
+        sumberSatuanVolumeId ||
+        drumSatuan?.id ||
+        related.defaultSatuanVolumeId ||
+        resultSatuanVolume[0]?.id ||
+        null;
+      const defaultSatuanName =
+        resultSatuanVolume.find((item) => item.id === defaultSatuanVolumeId)
+          ?.satuan || SUMBER_SATUAN_DEFAULT;
+      const defaultProduksi = collectDefaultProduksiFromSumber(
+        resultProduksiSumber,
+        defaultSatuanName,
+      );
+
+      return res.status(200).json({
+        success: true,
+        BAK3S: bak3sData,
+        relatedMitra: related.relatedMitra,
+        defaultSatuanVolumeId,
+        defaultSatuanName,
+        defaultProduksi,
+        resultSumurMinyak,
+        resultProduksi,
+        resultSatuanVolume,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  saveProduksiSumurK3S: async (req, res) => {
+    const { BAK3SId, items, satuanVolumeId } = req.body;
+
+    if (!BAK3SId || !Array.isArray(items) || !satuanVolumeId) {
+      return res.status(400).json({
+        error: "Data produksi, satuan volume, dan BAK3S wajib diisi",
+      });
+    }
+
+    const parsedBAK3SId = parseInt(BAK3SId, 10);
+    const parsedSatuanVolumeId = parseInt(satuanVolumeId, 10);
+
+    try {
+      const [bak3sData, satuanProduksi] = await Promise.all([
+        loadBAK3SForProduksi(parsedBAK3SId),
+        satuanVolume.findByPk(parsedSatuanVolumeId),
+      ]);
+
+      if (!bak3sData) {
+        return res.status(404).json({ error: "BAK3S tidak ditemukan" });
+      }
+
+      if (!satuanProduksi) {
+        return res.status(400).json({ error: "Satuan volume tidak valid" });
+      }
+
+      const related = collectRelatedMitraFromBA(bak3sData.BABongkar);
+      if (!related.relatedMitraIds.length) {
+        return res.status(400).json({
+          error:
+            "BAK3S belum terhubung dengan mitra. Pastikan BA Bongkar memiliki pengisian tanki dan surat jalan.",
+        });
+      }
+
+      const normalizedItems = items
+        .map((item) => ({
+          sumurMinyakId: parseInt(item.sumurMinyakId, 10),
+          produksi: parseProduksiNumber(item.produksi),
+        }))
+        .filter((item) => item.sumurMinyakId && item.produksi > 0);
+
+      const totalProduksiBarrel = normalizedItems.reduce(
+        (sum, item) =>
+          sum + convertVolumeToBarrel(item.produksi, satuanProduksi.satuan),
+        0,
+      );
+
+      const produksiBak3sBarrel = Number(bak3sData.produksi) || 0;
+      if (totalProduksiBarrel - produksiBak3sBarrel > 0.001) {
+        return res.status(400).json({
+          error: `Total produksi tidak boleh lebih dari produksi BAK3S (${bak3sData.produksi} barrel)`,
+        });
+      }
+
+      const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
+      const validSumur = await sumurMinyak.findAll({
+        where: {
+          id: sumurIds,
+          mitraId: related.relatedMitraIds,
+        },
+      });
+
+      if (validSumur.length !== sumurIds.length) {
+        return res.status(400).json({
+          error: "Terdapat sumur minyak yang tidak valid untuk mitra terkait",
+        });
+      }
+
+      const transaction = await sequelize.transaction();
+
+      try {
+        await produksiSumurK3S.destroy({
+          where: { BAK3SId: parsedBAK3SId },
+          transaction,
+        });
+
+        const created = await produksiSumurK3S.bulkCreate(
+          normalizedItems.map((item) => ({
+            BAK3SId: parsedBAK3SId,
+            sumurMinyakId: item.sumurMinyakId,
+            produksi: item.produksi,
+            satuanVolumeId: parsedSatuanVolumeId,
+            tanggal: bak3sData.BABongkar?.tanggal || new Date(),
+          })),
+          { transaction },
+        );
+
+        await transaction.commit();
+
+        return res.status(200).json({
+          success: true,
+          message: "Produksi sumur K3S berhasil disimpan",
+          result: created,
+          totalProduksiBarrel,
+        });
+      } catch (txErr) {
+        await transaction.rollback();
+        throw txErr;
+      }
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -1241,6 +1669,7 @@ module.exports = {
           tanggal,
           ukuranCairan: firstUkuran.parsedUkuranCairan,
           ukuranAir: firstUkuran.parsedUkuranAir,
+          userKPBPNId: resolveUserKPBPNId(req),
         },
         { transaction },
       );
@@ -1288,7 +1717,14 @@ module.exports = {
 
       const ukuranLookup = buildUkuranLookup(resultBA, resolvedGroups);
       const data = buildBABongkarRows(pengisianList, ukuranLookup);
-      const buffer = generateBABongkarBuffer(tanggal, data);
+      const pembuatUser = resultBA.userKPBPNId
+        ? await userKPBPN.findByPk(resultBA.userKPBPNId, {
+            attributes: ["nama"],
+          })
+        : null;
+      const buffer = generateBABongkarBuffer(tanggal, data, {
+        pembuat: pembuatUser?.nama ?? "-",
+      });
       const outputFileName = `BA_Bongkar_${Date.now()}.docx`;
 
       sendDocxDownload(res, buffer, outputFileName);
@@ -1314,7 +1750,9 @@ module.exports = {
       }
 
       const baId = parseInt(BABongkarId, 10);
-      const dataBA = await BABongkar.findByPk(baId);
+      const dataBA = await BABongkar.findByPk(baId, {
+        include: [getUserKPBPNInclude()],
+      });
 
       if (!dataBA) {
         return res
@@ -1339,7 +1777,9 @@ module.exports = {
       });
       const ukuranLookup = buildUkuranLookup(dataBA, tankiDetails);
       const data = buildBABongkarRows(pengisianList, ukuranLookup);
-      const buffer = generateBABongkarBuffer(dataBA.tanggal, data);
+      const buffer = generateBABongkarBuffer(dataBA.tanggal, data, {
+        pembuat: dataBA.userKPBPN?.nama ?? "-",
+      });
       const outputFileName = `BA_Bongkar_${baId}_${Date.now()}.docx`;
 
       sendDocxDownload(res, buffer, outputFileName);
@@ -1365,6 +1805,7 @@ module.exports = {
         where: { id: parseInt(id, 10) },
         include: [
           { model: tanki },
+          getUserKPBPNInclude(),
           {
             model: konfirmasiPenerimaan,
             through: { attributes: [] },
@@ -1488,6 +1929,7 @@ module.exports = {
         net: dataPengisian.net ?? 0,
         loss: grossNum - netNum,
         catatan: dataPengisian.catatan ?? "-",
+        pembuat: dataPengisian.userKPBPN?.nama ?? "-",
         data,
       });
 

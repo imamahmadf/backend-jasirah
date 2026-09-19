@@ -134,6 +134,7 @@ module.exports = {
           nama: resultUser.nama,
           namaPengguna: resultUser.namaPengguna,
           mitraId: resultUser.mitraId,
+          profilePic: resultUser.profilePic,
         },
         role: userRoles,
         mitra: resultUser.mitra ?? null,
@@ -166,7 +167,7 @@ module.exports = {
 
     try {
       const result = await userKPBPN.findOne({
-        attributes: ["id", "nama", "namaPengguna"],
+        attributes: ["id", "nama", "namaPengguna", "profilePic"],
         where: { id },
         include: [
           {
@@ -248,6 +249,191 @@ module.exports = {
     }
   },
 
+  updateProfile: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { nama, namaPengguna } = req.body;
+
+      const trimmedNama = typeof nama === "string" ? nama.trim() : "";
+      const trimmedNamaPengguna =
+        typeof namaPengguna === "string" ? namaPengguna.trim() : "";
+
+      if (!trimmedNama || !trimmedNamaPengguna) {
+        return res.status(400).json({
+          message: "Nama dan nama pengguna harus diisi",
+        });
+      }
+
+      if (trimmedNamaPengguna.length < 3) {
+        return res.status(400).json({
+          message: "Nama pengguna minimal 3 karakter",
+        });
+      }
+
+      const resultUser = await userKPBPN.findOne({
+        where: { id: userId },
+      });
+
+      if (!resultUser) {
+        return res.status(404).json({
+          message: "User tidak ditemukan",
+        });
+      }
+
+      const existingUser = await userKPBPN.findOne({
+        where: {
+          namaPengguna: trimmedNamaPengguna,
+          id: { [Op.ne]: userId },
+        },
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          message: "Nama pengguna sudah digunakan",
+        });
+      }
+
+      await userKPBPN.update(
+        {
+          nama: trimmedNama,
+          namaPengguna: trimmedNamaPengguna,
+        },
+        { where: { id: userId } },
+      );
+
+      const updatedUser = await userKPBPN.findOne({
+        attributes: ["id", "nama", "namaPengguna", "mitraId", "profilePic"],
+        where: { id: userId },
+        include: [
+          {
+            model: userRoleKPBPN,
+            attributes: ["id", "roleKPBPNId"],
+            include: [{ model: roleKPBPN, attributes: ["id", "name"] }],
+          },
+        ],
+      });
+
+      return res.status(200).json({
+        result: updatedUser,
+        message: "Profil berhasil diperbarui",
+      });
+    } catch (err) {
+      console.error(err);
+      if (
+        err.name === "SequelizeUniqueConstraintError" ||
+        err.name === "SequelizeValidationError"
+      ) {
+        if (err.errors && err.errors.some((e) => e.path === "namaPengguna")) {
+          return res.status(400).json({
+            message: "Nama pengguna sudah digunakan",
+          });
+        }
+      }
+      return res.status(500).json({
+        message: err.toString(),
+        code: 500,
+      });
+    }
+  },
+
+  uploadProfilePhoto: async (req, res) => {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          message: "Unauthorized - User tidak terautentikasi",
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          message: "Silakan pilih foto terlebih dahulu",
+        });
+      }
+
+      const resultUser = await userKPBPN.findOne({
+        where: { id: userId },
+      });
+
+      if (!resultUser) {
+        const newFilePath = path.join(
+          __dirname,
+          "../public/profile",
+          req.file.filename,
+        );
+        if (fs.existsSync(newFilePath)) {
+          fs.unlinkSync(newFilePath);
+        }
+        return res.status(404).json({
+          message: "User tidak ditemukan",
+        });
+      }
+
+      const oldImgName = req.body.old_img || resultUser.profilePic;
+
+      if (oldImgName) {
+        const normalizedOldImg = oldImgName.trim();
+        const isPath =
+          normalizedOldImg.startsWith("/") ||
+          normalizedOldImg.startsWith("\\");
+
+        const oldFilePath = isPath
+          ? path.join(
+              __dirname,
+              "../public",
+              normalizedOldImg.replace(/[\\/]+/g, "/"),
+            )
+          : path.join(__dirname, "../public/profile", normalizedOldImg);
+
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlink(oldFilePath, (err) => {
+            if (err) {
+              console.error("Gagal menghapus file foto lama:", err);
+            }
+          });
+        }
+      }
+
+      const newPhotoPath = `/profile/${req.file.filename}`;
+
+      await userKPBPN.update(
+        { profilePic: newPhotoPath },
+        { where: { id: userId } },
+      );
+
+      return res.status(200).json({
+        message: "Foto profil berhasil diubah",
+        photo: newPhotoPath,
+      });
+    } catch (err) {
+      console.error("Error saat upload foto profile:", err);
+
+      if (req.file) {
+        const newFilePath = path.join(
+          __dirname,
+          "../public/profile",
+          req.file.filename,
+        );
+        if (fs.existsSync(newFilePath)) {
+          fs.unlink(newFilePath, (unlinkErr) => {
+            if (unlinkErr) {
+              console.error(
+                "Gagal menghapus file yang baru diupload:",
+                unlinkErr,
+              );
+            }
+          });
+        }
+      }
+
+      return res.status(500).json({
+        message: "Gagal mengubah foto profil. Silakan coba lagi.",
+        error: err.message,
+      });
+    }
+  },
+
   changePassword: async (req, res) => {
     try {
       const { passwordLama, passwordBaru } = req.body;
@@ -324,7 +510,7 @@ module.exports = {
         where: whereCondition,
         offset,
         limit,
-        attributes: ["id", "nama", "namaPengguna"],
+        attributes: ["id", "nama", "namaPengguna", "profilePic"],
         include: [
           {
             model: userRoleKPBPN,

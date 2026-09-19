@@ -5,7 +5,7 @@ const nomorSuratKPBPNs = [
   {
     createdAt: currentDate,
     updatedAt: currentDate,
-    nomor: "NOMOR/KPBPN/LOG/BULAN/TAHUN",
+    nomor: "NOMOR/KPBPN-KODE/LOG/BULAN/TAHUN",
     nomorUrut: 0,
 
     id: 1,
