@@ -1473,6 +1473,8 @@ module.exports = {
       kode,
       kapasitas,
       factorTank,
+      panjang,
+      lebar,
       satuanVolumeId,
     } = req.body;
     try {
@@ -1491,6 +1493,8 @@ module.exports = {
         kapasitas: parseInt(kapasitas),
         foto,
         factorTank: parseFactorTank(factorTank),
+        panjang: parseFactorTank(panjang),
+        lebar: parseFactorTank(lebar),
         satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
       });
 
@@ -1518,6 +1522,8 @@ module.exports = {
       kode,
       kapasitas,
       factorTank,
+      panjang,
+      lebar,
       satuanVolumeId,
     } = req.body;
     try {
@@ -1544,6 +1550,8 @@ module.exports = {
           kapasitas: parseInt(kapasitas),
           foto,
           factorTank: parseFactorTank(factorTank),
+          panjang: parseFactorTank(panjang),
+          lebar: parseFactorTank(lebar),
           satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
         },
         { where: { id } },
@@ -1702,6 +1710,22 @@ module.exports = {
         resolvedGroups.map((group) => group.tangkiId),
         transaction,
       );
+
+      const tankiTanpaUkuran = resolvedGroups.filter((group) => {
+        const ukuran = parseUkuranBA(group.ukuranCairan, group.ukuranAir);
+        return (
+          ukuran.parsedUkuranCairan === null ||
+          Number.isNaN(ukuran.parsedUkuranCairan) ||
+          ukuran.parsedUkuranAir === null ||
+          Number.isNaN(ukuran.parsedUkuranAir)
+        );
+      });
+
+      if (tankiTanpaUkuran.length) {
+        throw new Error(
+          "Ukuran cairan dan ukuran air wajib diisi untuk setiap tanki",
+        );
+      }
 
       const firstUkuran = parseUkuranBA(
         resolvedGroups[0]?.ukuranCairan,

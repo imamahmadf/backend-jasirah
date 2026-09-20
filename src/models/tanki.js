@@ -30,6 +30,8 @@ module.exports = (sequelize, DataTypes) => {
       foto: DataTypes.STRING,
       kapasitas: DataTypes.INTEGER,
       factorTank: DataTypes.DECIMAL(10, 3),
+      panjang: DataTypes.DECIMAL(10, 3),
+      lebar: DataTypes.DECIMAL(10, 3),
       satuanVolumeId: DataTypes.INTEGER,
     },
     {

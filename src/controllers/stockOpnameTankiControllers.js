@@ -9,6 +9,8 @@ const {
   konfirmasiPenerimaan,
   suratJalan,
   mitra,
+  ujiLabK3S,
+  BAK3S,
 } = require("../models");
 
 const { Op } = require("sequelize");
@@ -22,6 +24,33 @@ const parseDecimalInput = (value) => {
   const normalized = String(value).trim().replace(",", ".");
   const num = parseFloat(normalized);
   return Number.isNaN(num) ? null : num;
+};
+
+const toNumberOrNull = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+};
+
+const pickFirstBsnw = (...groups) => {
+  for (const group of groups) {
+    const items = Array.isArray(group) ? group : [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const value = toNumberOrNull(items[i]?.BSNW);
+      if (value !== null) return value;
+    }
+  }
+  return null;
+};
+
+const roundBsnwPercent = (value) =>
+  Math.round((Number(value) + Number.EPSILON) * 1000) / 1000;
+
+const calcBsnwGabungan = (sedimen, volume) => {
+  const totalVolume = Number(volume) || 0;
+  const totalSedimen = Number(sedimen) || 0;
+  if (totalVolume <= 0) return null;
+  return roundBsnwPercent((totalSedimen / totalVolume) * 100);
 };
 
 const parseFactorTank = (factorTank) =>
@@ -85,13 +114,21 @@ const getDayRange = (dateValue) => {
   return { dateKey, start, end };
 };
 
-const calcVolumeFromTinggi = (tinggi, factorTank) => {
+const calcVolumeFromTinggi = (tinggi, panjang, lebar) => {
   const height = parseDecimalInput(tinggi);
-  const factor = parseFactorTank(factorTank);
-  if (height === null || factor === null || Number.isNaN(factor) || factor <= 0) {
+  const length = parseDecimalInput(panjang);
+  const width = parseDecimalInput(lebar);
+  if (
+    height === null ||
+    length === null ||
+    width === null ||
+    length <= 0 ||
+    width <= 0
+  ) {
     return null;
   }
-  return roundBarrelVolume(height * factor);
+  const liter = (height * length * width) / 1000;
+  return roundBarrelVolume(convertVolumeToBarrel(liter, "liter"));
 };
 
 const calcKeluarBarrel = (ukuranCairan, ukuranAir, factorTank) => {
@@ -112,21 +149,25 @@ const calcKeluarBarrel = (ukuranCairan, ukuranAir, factorTank) => {
 
 const buildVolumeFields = (item) => {
   const factorTank = parseFactorTank(item.tanki?.factorTank);
+  const panjang = parseDecimalInput(item.tanki?.panjang);
+  const lebar = parseDecimalInput(item.tanki?.lebar);
   const tinggiMinyak = parseDecimalInput(item.tinggiMinyak);
   const tinggiAir = parseDecimalInput(item.tinggiAir);
-  const volumeMinyak = calcVolumeFromTinggi(tinggiMinyak, factorTank);
-  const volumeAir = calcVolumeFromTinggi(tinggiAir, factorTank);
+  const volumeMinyak = calcVolumeFromTinggi(tinggiMinyak, panjang, lebar);
+  const volumeAir = calcVolumeFromTinggi(tinggiAir, panjang, lebar);
   const tinggiBersih =
     tinggiMinyak !== null && tinggiAir !== null
       ? tinggiMinyak - tinggiAir
       : null;
-  const volumeBersih = calcVolumeFromTinggi(tinggiBersih, factorTank);
+  const volumeBersih = calcVolumeFromTinggi(tinggiBersih, panjang, lebar);
 
   return {
     tinggiMinyak,
     tinggiAir,
     suhu: parseDecimalInput(item.suhu),
     factorTank,
+    panjang,
+    lebar,
     volumeMinyak,
     volumeAir,
     volumeBersih,
@@ -148,19 +189,22 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
   const pengisianWhere = {};
   const baWhere = {};
   const baTankiWhere = {};
+  const ujiWhere = {};
   const dateRange = buildDateRange(startDate, endDate);
 
   if (dateRange) {
     pengisianWhere.tanggal = dateRange;
     baWhere.tanggal = dateRange;
+    ujiWhere.tanggal = dateRange;
   }
 
   if (tankiIds?.length) {
     pengisianWhere.tangkiId = { [Op.in]: tankiIds };
     baTankiWhere.tangkiId = { [Op.in]: tankiIds };
+    ujiWhere.tangkiId = { [Op.in]: tankiIds };
   }
 
-  const [pengisianList, baList] = await Promise.all([
+  const [pengisianList, baList, ujiList] = await Promise.all([
     pengisianTanki.findAll({
       where: pengisianWhere,
       include: [
@@ -172,7 +216,10 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
           include: [
             {
               model: suratJalan,
-              include: [{ model: mitra, attributes: ["id", "nama", "kode"] }],
+              include: [
+                { model: mitra, attributes: ["id", "nama", "kode"] },
+                { model: satuanVolume, attributes: ["id", "satuan"] },
+              ],
             },
           ],
         },
@@ -191,7 +238,25 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
           required: Boolean(tankiIds?.length),
           include: [{ model: tanki }],
         },
+        {
+          model: ujiLabK3S,
+          as: "ujiLabK3S",
+          include: [{ model: tanki, attributes: ["id", "kode"] }],
+        },
+        {
+          model: BAK3S,
+          as: "BAK3S",
+          attributes: ["id", "api", "BSNW", "produksi", "sg"],
+        },
       ],
+      order: [
+        ["tanggal", "ASC"],
+        ["id", "ASC"],
+      ],
+    }),
+    ujiLabK3S.findAll({
+      where: ujiWhere,
+      include: [{ model: tanki, attributes: ["id", "kode"] }],
       order: [
         ["tanggal", "ASC"],
         ["id", "ASC"],
@@ -211,6 +276,10 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
         jumlahKeluar: 0,
         detailMasuk: [],
         detailKeluar: [],
+        detailBSNW: [],
+        bsnwMasukVolume: 0,
+        bsnwMasukSedimen: 0,
+        seenKonfirmasiIds: new Set(),
         kode: tankInfo.kode || "-",
       });
     }
@@ -246,18 +315,77 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
     row.jumlahMasuk += 1;
     const suratJalans = [];
     const seenSuratJalan = new Set();
+    const seenPengisianKp = new Set();
+    const konfirmasiBsnw = [];
+    let pengisianBsnwVolume = 0;
+    let pengisianBsnwSedimen = 0;
+
     for (const kp of item.konfirmasiPenerimaans || []) {
       const sj = kp.suratJalan;
-      if (!sj?.id || seenSuratJalan.has(sj.id)) continue;
-      seenSuratJalan.add(sj.id);
+      const satuanName = sj?.satuanVolume?.satuan || satuanAsli;
+      const volumeRaw =
+        toNumberOrNull(kp.volume) ?? toNumberOrNull(sj?.volume);
+      const volumeBarrel =
+        volumeRaw != null
+          ? roundBarrelVolume(convertVolumeToBarrel(volumeRaw, satuanName))
+          : 0;
+      const bsnw = toNumberOrNull(kp.BSNW);
+      const sedimenBarrel =
+        volumeBarrel > 0 && bsnw !== null
+          ? volumeBarrel * (bsnw / 100)
+          : 0;
+
+      konfirmasiBsnw.push({
+        BSNW: bsnw,
+        api: toNumberOrNull(kp.api),
+        volume: volumeRaw,
+        volumeBarrel,
+        satuan: satuanName,
+      });
+
+      const alreadyCounted = kp.id && row.seenKonfirmasiIds.has(kp.id);
+      if (kp.id) {
+        row.seenKonfirmasiIds.add(kp.id);
+      }
+      const alreadyInPengisian = kp.id && seenPengisianKp.has(kp.id);
+      if (kp.id) {
+        seenPengisianKp.add(kp.id);
+      }
+      if (!alreadyCounted && volumeBarrel > 0 && bsnw !== null) {
+        row.bsnwMasukVolume += volumeBarrel;
+        row.bsnwMasukSedimen += sedimenBarrel;
+      }
+      if (!alreadyInPengisian && volumeBarrel > 0 && bsnw !== null) {
+        pengisianBsnwVolume += volumeBarrel;
+        pengisianBsnwSedimen += sedimenBarrel;
+      }
+
+      const displayId = sj?.id || kp.id;
+      if (!displayId || seenSuratJalan.has(displayId)) continue;
+      seenSuratJalan.add(displayId);
       suratJalans.push({
-        id: sj.id,
-        nomor: sj.nomor || null,
-        tanggal: sj.tanggal || null,
-        mitraNama: sj.mitra?.nama || null,
-        mitraKode: sj.mitra?.kode || null,
+        id: displayId,
+        konfirmasiId: kp.id || null,
+        nomor: sj?.nomor || kp.nomor || null,
+        tanggal: sj?.tanggal || kp.tanggal || null,
+        mitraNama: sj?.mitra?.nama || null,
+        mitraKode: sj?.mitra?.kode || null,
+        api: toNumberOrNull(kp.api),
+        BSNW: bsnw,
+        volume: volumeRaw,
+        volumeBarrel,
+        satuan: satuanName,
+        sedimenBarrel:
+          volumeBarrel > 0 && bsnw !== null
+            ? roundBarrelVolume(sedimenBarrel)
+            : null,
       });
     }
+
+    const bsnwGabunganPengisian = calcBsnwGabungan(
+      pengisianBsnwSedimen,
+      pengisianBsnwVolume,
+    );
 
     row.detailMasuk.push({
       id: item.id,
@@ -275,6 +403,10 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
       warna: item.warna || null,
       kandunganAir: item.kandunganAir ?? null,
       BSW: item.BSW ?? null,
+      BSNW: bsnwGabunganPengisian ?? pickFirstBsnw(suratJalans, konfirmasiBsnw),
+      BSNWGabungan: bsnwGabunganPengisian,
+      bsnwVolumeBarrel: roundBarrelVolume(pengisianBsnwVolume),
+      bsnwSedimenBarrel: roundBarrelVolume(pengisianBsnwSedimen),
       catatan: item.catatan || null,
       saksi: item.saksi || null,
       suratJalans,
@@ -300,6 +432,11 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
         ukuranAir,
         detail.tanki?.factorTank,
       );
+      const ujiForTank = (ba.ujiLabK3S || []).find(
+        (uji) => (uji.tangkiId ?? uji.tanki?.id) === tangkiIdValue,
+      );
+      const ujiBsnw = toNumberOrNull(ujiForTank?.BSNW);
+      const bak3sBsnw = toNumberOrNull(ba.BAK3S?.BSNW);
 
       row.keluar += volumeKeluar;
       row.jumlahKeluar += 1;
@@ -311,13 +448,45 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
         ukuranCairan,
         ukuranAir,
         volume: volumeKeluar,
+        BSNW: ujiBsnw ?? bak3sBsnw,
+        api: toNumberOrNull(ujiForTank?.api) ?? toNumberOrNull(ba.BAK3S?.api),
+        sg: toNumberOrNull(ujiForTank?.sg) ?? toNumberOrNull(ba.BAK3S?.sg),
+        suhu: toNumberOrNull(ujiForTank?.suhu),
+        kualitas: ujiForTank?.kualitas || null,
+        sumberBSNW: ujiForTank ? "ujiLab" : ba.BAK3S ? "BAK3S" : null,
       });
     }
+  }
+
+  for (const uji of ujiList) {
+    const dateKey = toDateKey(uji.tanggal);
+    const tangkiIdValue = uji.tangkiId ?? uji.tanki?.id;
+    if (!dateKey || !tangkiIdValue) continue;
+
+    const row = getOrCreate(dateKey, tangkiIdValue, {
+      kode: uji.tanki?.kode,
+    });
+    row.detailBSNW.push({
+      id: uji.id,
+      tanggal: uji.tanggal,
+      BSNW: toNumberOrNull(uji.BSNW),
+      api: toNumberOrNull(uji.api),
+      sg: toNumberOrNull(uji.sg),
+      suhu: toNumberOrNull(uji.suhu),
+      kualitas: uji.kualitas || null,
+      baId: uji.BABongkarId || null,
+    });
   }
 
   for (const row of mutasiMap.values()) {
     row.masuk = roundBarrelVolume(row.masuk);
     row.keluar = roundBarrelVolume(row.keluar);
+    row.bsnwMasukVolume = roundBarrelVolume(row.bsnwMasukVolume);
+    row.bsnwMasukSedimen = roundBarrelVolume(row.bsnwMasukSedimen);
+    row.BSNWGabunganMasuk = calcBsnwGabungan(
+      row.bsnwMasukSedimen,
+      row.bsnwMasukVolume,
+    );
   }
 
   return mutasiMap;
@@ -327,6 +496,9 @@ const serializeStockOpname = (item, mutasi = {}) => {
   const volumes = buildVolumeFields(item);
   const masuk = roundBarrelVolume(mutasi.masuk || 0);
   const keluar = roundBarrelVolume(mutasi.keluar || 0);
+  const detailMasuk = mutasi.detailMasuk || [];
+  const detailKeluar = mutasi.detailKeluar || [];
+  const detailBSNW = mutasi.detailBSNW || [];
 
   return {
     id: item.id,
@@ -338,17 +510,25 @@ const serializeStockOpname = (item, mutasi = {}) => {
     tinggiMinyak: volumes.tinggiMinyak,
     tinggiAir: volumes.tinggiAir,
     factorTank: volumes.factorTank,
+    panjang: volumes.panjang,
+    lebar: volumes.lebar,
     volumeMinyak: volumes.volumeMinyak,
     volumeAir: volumes.volumeAir,
     volumeBersih: volumes.volumeBersih,
     satuan: SATUAN,
     masuk,
     keluar,
+    BSNW: pickFirstBsnw(detailBSNW, detailKeluar, detailMasuk),
+    BSNWGabunganMasuk: mutasi.BSNWGabunganMasuk ?? null,
+    bsnwMasukVolume: roundBarrelVolume(mutasi.bsnwMasukVolume || 0),
+    bsnwMasukSedimen: roundBarrelVolume(mutasi.bsnwMasukSedimen || 0),
     selisihMutasi: roundBarrelVolume(masuk - keluar),
     jumlahMasuk: mutasi.jumlahMasuk || 0,
     jumlahKeluar: mutasi.jumlahKeluar || 0,
-    detailMasuk: mutasi.detailMasuk || [],
-    detailKeluar: mutasi.detailKeluar || [],
+    jumlahBSNW: detailBSNW.length,
+    detailMasuk,
+    detailKeluar,
+    detailBSNW,
     tanki: item.tanki,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -467,6 +647,16 @@ module.exports = {
       const totalStok = roundBarrelVolume(
         result.reduce((sum, row) => sum + (row.volumeBersih || 0), 0),
       );
+      const totalBsnwMasukVolume = roundBarrelVolume(
+        result.reduce((sum, row) => sum + (row.bsnwMasukVolume || 0), 0),
+      );
+      const totalBsnwMasukSedimen = roundBarrelVolume(
+        result.reduce((sum, row) => sum + (row.bsnwMasukSedimen || 0), 0),
+      );
+      const totalBSNWGabunganMasuk = calcBsnwGabungan(
+        totalBsnwMasukSedimen,
+        totalBsnwMasukVolume,
+      );
 
       return res.status(200).json({
         success: true,
@@ -478,6 +668,9 @@ module.exports = {
         totalMasuk,
         totalKeluar,
         totalStok,
+        totalBSNWGabunganMasuk,
+        totalBsnwMasukVolume,
+        totalBsnwMasukSedimen,
         satuan: SATUAN,
       });
     } catch (err) {
