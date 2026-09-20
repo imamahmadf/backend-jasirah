@@ -30,6 +30,7 @@ module.exports = (sequelize, DataTypes) => {
       nomor: DataTypes.STRING,
       suratJalanId: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
+      jamKedatangan: DataTypes.TIME,
       volume: DataTypes.INTEGER,
       pegawaiId: DataTypes.INTEGER,
       catatan: DataTypes.STRING,

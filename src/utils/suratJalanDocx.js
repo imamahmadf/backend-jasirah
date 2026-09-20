@@ -4,7 +4,7 @@ const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
 const ImageModule = require("docxtemplater-image-module-free");
 const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
-const { env } = require("../config");
+const { buildFrontendPathUrl } = require("../lib/frontendBaseUrl");
 
 let sizeOf;
 try {
@@ -146,6 +146,7 @@ async function buildSuratJalanDocxFromRecord(
   record,
   verifikasiCode,
   templatePath,
+  req,
 ) {
   if (!templatePath || !fs.existsSync(templatePath)) {
     throw new Error(
@@ -157,19 +158,17 @@ async function buildSuratJalanDocxFromRecord(
     throw new Error("Kode verifikasi surat jalan tidak ditemukan");
   }
 
-  const isProduction = env.NODE_ENV === "production";
-  const baseUrl = (
-    isProduction
-      ? env.APP_BASE_URL_PROD || "https://jasirahcore.cloud/"
-      : env.APP_BASE_URL_DEV || "https://jasirahcore.cloud/"
-  ).replace(/\/+$/, "");
-
+  const qrUrl = buildFrontendPathUrl(
+    req,
+    `/qr-surat-jalan/${verifikasiCode}`,
+  );
   const logoPath = path.join(__dirname, "../public/surat-jalan/logoKPBPN.png");
 
-  const qrDataUrl = await generateQrWithLogo(
-    `${baseUrl}/qr-surat-jalan/${verifikasiCode}`,
-    { sizePx: 400, logoPath, logoScale: 0.3 },
-  );
+  const qrDataUrl = await generateQrWithLogo(qrUrl, {
+    sizePx: 400,
+    logoPath,
+    logoScale: 0.3,
+  });
 
   const content = fs.readFileSync(templatePath, "binary");
   const zip = new PizZip(content);

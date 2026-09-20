@@ -49,9 +49,22 @@ const path = require("path");
 
 const toTimeString = (time) => {
   if (!time) return null;
+  if (time instanceof Date && !Number.isNaN(time.getTime())) {
+    return [
+      String(time.getHours()).padStart(2, "0"),
+      String(time.getMinutes()).padStart(2, "0"),
+      String(time.getSeconds()).padStart(2, "0"),
+    ].join(":");
+  }
   const value = String(time).trim();
-  if (/^\d{2}:\d{2}$/.test(value)) return `${value}:00`;
-  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) return value;
+  if (/^\d{1,2}:\d{2}$/.test(value)) {
+    const [hh, mm] = value.split(":");
+    return `${hh.padStart(2, "0")}:${mm}:00`;
+  }
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(value)) {
+    const [hh, mm, ss] = value.split(":");
+    return `${hh.padStart(2, "0")}:${mm}:${ss}`;
+  }
   return null;
 };
 
@@ -695,6 +708,7 @@ module.exports = {
         result,
         verifikasiCode,
         templatePath,
+        req,
       );
       const format = String(req.query.format || "pdf").toLowerCase();
       const isDocx =
@@ -980,18 +994,21 @@ module.exports = {
         });
       }
 
-      const foto = buildKonfirmasiFotoPath(
-        getUploadedKonfirmasiFile(req, "foto"),
-      );
-      if (!foto) {
+      const jamKedatangan = toTimeString(req.body.jamKedatangan);
+      if (!jamKedatangan) {
         return res.status(400).json({
-          error: "Foto bukti penerimaan wajib diunggah",
+          error: "Jam kedatangan wajib diisi",
         });
       }
+
+      const foto =
+        buildKonfirmasiFotoPath(getUploadedKonfirmasiFile(req, "foto")) ||
+        null;
 
       const result = await konfirmasiPenerimaan.create({
         suratJalanId: parseInt(suratJalanId, 10),
         tanggal: new Date(),
+        jamKedatangan,
         volume: null,
         pegawaiId: Number.isNaN(parsedPegawaiId) ? null : parsedPegawaiId,
         catatan: null,
@@ -1102,12 +1119,6 @@ module.exports = {
       if (uploadedFotoLab) {
         deleteKonfirmasiFoto(existing.fotoLab);
         fotoLab = buildKonfirmasiFotoPath(uploadedFotoLab);
-      }
-
-      if (isBongkar && !fotoLab) {
-        return res.status(400).json({
-          error: "Foto lab wajib diunggah",
-        });
       }
 
       const updatePayload = {

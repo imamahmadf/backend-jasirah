@@ -10,7 +10,7 @@ const {
 } = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
 const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
-const { env } = require("../config");
+const { buildFrontendPathUrl } = require("../lib/frontendBaseUrl");
 
 const ROLE_SUPER_ADMIN = 1;
 const ROLE_ADMIN = 2;
@@ -46,14 +46,6 @@ const sanitizeDownloadFileName = (name) =>
     .replace(/[\\/:*?"<>|]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
-
-const getFrontendBaseUrl = () => {
-  const isProduction = env.NODE_ENV === "production";
-  const raw = isProduction
-    ? env.APP_BASE_URL_PROD || "https://jasirahcore.cloud/"
-    : env.APP_BASE_URL_DEV || "https://jasirahcore.cloud/";
-  return String(raw).replace(/\/+$/, "");
-};
 
 const createKodeQr = () =>
   (
@@ -601,7 +593,7 @@ module.exports = {
 
       const kodeQr = await ensureKodeQr(result);
       const qrPath = `/qr-sumur/${kodeQr}`;
-      const qrUrl = `${getFrontendBaseUrl()}${qrPath}`;
+      const qrUrl = buildFrontendPathUrl(req, qrPath);
       const logoPath = path.join(
         __dirname,
         "../public/surat-jalan/logoKPBPN.png",

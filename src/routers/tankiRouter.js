@@ -70,6 +70,7 @@ routers.post("/post/ba-bongkar", tankiControllers.postBABongkar);
 routers.post("/cetak/ba-bongkar", tankiControllers.cetakBABongkar);
 routers.post("/cetak/bast", tankiControllers.cetakBAST);
 routers.get("/get/stok-opname", tankiControllers.getStokOpname);
+routers.get("/get/riwayat", tankiControllers.getRiwayatTanki);
 routers.get("/get/tanki-monitoring", tankiControllers.getTankiMonitoring);
 routers.post(
   "/post/tanki",

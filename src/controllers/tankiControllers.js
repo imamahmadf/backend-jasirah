@@ -20,6 +20,7 @@ const {
   jenisMitra,
   satuanVolume,
   userKPBPN,
+  statusSuratJalan,
   sequelize,
 } = require("../models");
 
@@ -95,6 +96,78 @@ const parseKonfirmasiIds = (ids) => [
       .filter((id) => Number.isInteger(id) && id > 0),
   ),
 ];
+
+const httpError = (statusCode, message) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const generateNomorBAST = async ({
+  pengisianId,
+  tanggal,
+  konfirmasiList,
+  transaction,
+}) => {
+  const kpPertama = konfirmasiList?.[0];
+  const mitraData = kpPertama?.suratJalan?.mitra;
+
+  if (!mitraData?.id) {
+    throw httpError(
+      400,
+      "Data mitra tidak ditemukan untuk generate nomor BAST",
+    );
+  }
+  if (!mitraData.jenisMitra?.kode || !mitraData.kode) {
+    throw httpError(
+      400,
+      "Kode jenis mitra atau kode mitra tidak ditemukan",
+    );
+  }
+
+  const dbNoBAST = await nomorSuratKPBPN.findOne({
+    where: { id: 2 },
+    transaction,
+  });
+
+  if (!dbNoBAST?.nomor) {
+    throw httpError(500, "Template nomor surat BAST tidak ditemukan");
+  }
+
+  const lockedMitra = await mitra.findByPk(mitraData.id, {
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+
+  if (!lockedMitra) {
+    throw httpError(
+      400,
+      "Data mitra tidak ditemukan untuk generate nomor BAST",
+    );
+  }
+
+  const tanggalNomor =
+    tanggal ||
+    kpPertama?.tanggal ||
+    kpPertama?.suratJalan?.tanggal ||
+    new Date();
+
+  const kodeMitra = `${mitraData.jenisMitra.kode}-${mitraData.kode}`;
+  const nomorUrut = (parseInt(lockedMitra.nomorUrut, 10) || 0) + 1;
+  const nomorBAST = dbNoBAST.nomor
+    .replace("NOMOR", nomorUrut.toString())
+    .replace("BULAN", getRomanMonth(new Date(tanggalNomor)))
+    .replace("TAHUN", "2026")
+    .replace("KODE", kodeMitra);
+
+  await lockedMitra.update({ nomorUrut }, { transaction });
+  await pengisianTanki.update(
+    { nomorSurat: nomorBAST },
+    { where: { id: pengisianId }, transaction },
+  );
+
+  return nomorBAST;
+};
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -799,8 +872,42 @@ module.exports = {
       ids,
     } = req.body;
     const userKPBPNId = resolveUserKPBPNId(req);
+    const konfirmasiIds = parseKonfirmasiIds(ids);
+    if (!konfirmasiIds.length) {
+      return res.status(400).json({
+        message:
+          "Konfirmasi penerimaan wajib dipilih untuk membuat BAST",
+      });
+    }
+
     const transaction = await sequelize.transaction();
     try {
+      const validKonfirmasi = await konfirmasiPenerimaan.findAll({
+        where: { id: { [Op.in]: konfirmasiIds } },
+        include: [
+          {
+            model: suratJalan,
+            required: true,
+            where: { statusSuratJalanId: 5 },
+            include: [
+              {
+                model: mitra,
+                include: [{ model: jenisMitra }],
+              },
+            ],
+          },
+        ],
+        transaction,
+      });
+
+      if (validKonfirmasi.length !== konfirmasiIds.length) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error:
+            "Hanya konfirmasi surat jalan berstatus BONGKAR yang dapat digunakan untuk pengisian tanki",
+        });
+      }
+
       const result = await pengisianTanki.create(
         {
           tangkiId,
@@ -820,31 +927,18 @@ module.exports = {
         { transaction },
       );
 
-      const konfirmasiIds = parseKonfirmasiIds(ids);
-      if (konfirmasiIds.length) {
-        const validKonfirmasi = await konfirmasiPenerimaan.findAll({
-          where: { id: { [Op.in]: konfirmasiIds } },
-          include: [
-            {
-              model: suratJalan,
-              required: true,
-              attributes: ["id", "statusSuratJalanId"],
-              where: { statusSuratJalanId: 5 },
-            },
-          ],
-          transaction,
-        });
+      await result.setKonfirmasiPenerimaans(konfirmasiIds, { transaction });
 
-        if (validKonfirmasi.length !== konfirmasiIds.length) {
-          await transaction.rollback();
-          return res.status(400).json({
-            error:
-              "Hanya konfirmasi surat jalan berstatus BONGKAR yang dapat digunakan untuk pengisian tanki",
-          });
-        }
+      const orderedKonfirmasi = konfirmasiIds
+        .map((id) => validKonfirmasi.find((item) => item.id === id))
+        .filter(Boolean);
 
-        await result.setKonfirmasiPenerimaans(konfirmasiIds, { transaction });
-      }
+      const nomorBAST = await generateNomorBAST({
+        pengisianId: result.id,
+        tanggal,
+        konfirmasiList: orderedKonfirmasi,
+        transaction,
+      });
 
       await transaction.commit();
 
@@ -852,19 +946,21 @@ module.exports = {
       await notifyDashboardChange(io, {
         type: "pengisianTanki:created",
         title: "Pengisian Tanki",
-        description: `Pengisian tanki baru dicatat (gross: ${gross}, net: ${net})`,
+        description: `BAST ${nomorBAST} dicatat (gross: ${gross}, net: ${net})`,
         entity: "pengisianTanki",
         entityId: result.id,
       });
 
       return res.status(200).json({
         message: "berhasil tambah data",
+        nomorSurat: nomorBAST,
+        id: result.id,
       });
     } catch (err) {
       await transaction.rollback();
       console.log(err);
-      return res.status(500).json({
-        message: err,
+      return res.status(err.statusCode || 500).json({
+        message: err.message || err,
       });
     }
   },
@@ -1902,50 +1998,24 @@ module.exports = {
       let nomorBAST = dataPengisian.nomorSurat;
 
       if (!nomorBAST) {
-        const kpPertama = konfirmasiList[0];
-        const mitraData = kpPertama?.suratJalan?.mitra;
-
-        if (!mitraData) {
-          return res.status(400).json({
-            message: "Data mitra tidak ditemukan untuk generate nomor BAST",
+        const nomorTransaction = await sequelize.transaction();
+        try {
+          nomorBAST = await generateNomorBAST({
+            pengisianId: parseInt(id, 10),
+            tanggal:
+              dataPengisian.tanggal ||
+              dataPengisian.createdAt ||
+              new Date(),
+            konfirmasiList,
+            transaction: nomorTransaction,
+          });
+          await nomorTransaction.commit();
+        } catch (err) {
+          await nomorTransaction.rollback();
+          return res.status(err.statusCode || 500).json({
+            message: err.message || "Gagal generate nomor BAST",
           });
         }
-        if (!mitraData.jenisMitra?.kode || !mitraData.kode) {
-          return res.status(400).json({
-            message: "Kode jenis mitra atau kode mitra tidak ditemukan",
-          });
-        }
-
-        const dbNoBAST = await nomorSuratKPBPN.findOne({ where: { id: 2 } });
-
-        if (!dbNoBAST) {
-          return res.status(500).json({
-            message: "Template nomor surat BAST tidak ditemukan",
-          });
-        }
-
-        const tanggalNomor =
-          dataPengisian.tanggal ||
-          kpPertama?.tanggal ||
-          kpPertama?.suratJalan?.tanggal ||
-          dataPengisian.createdAt ||
-          new Date();
-
-        const kodeMitra = `${mitraData.jenisMitra.kode}-${mitraData.kode}`;
-        const nomorUrut = parseInt(mitraData.nomorUrut, 10) + 1;
-
-        nomorBAST = dbNoBAST.nomor
-          .replace("NOMOR", nomorUrut.toString())
-          .replace("BULAN", getRomanMonth(new Date(tanggalNomor)))
-          .replace("TAHUN", "2026")
-          .replace("KODE", kodeMitra);
-
-        await mitra.update({ nomorUrut }, { where: { id: mitraData.id } });
-
-        await pengisianTanki.update(
-          { nomorSurat: nomorBAST },
-          { where: { id: parseInt(id, 10) } },
-        );
       }
       const grossNum = parseInt(dataPengisian.gross, 10) || 0;
       const netNum = parseInt(dataPengisian.net, 10) || 0;
@@ -2414,6 +2484,241 @@ module.exports = {
         success: true,
         result,
         totalRows: result.length,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getRiwayatTanki: async (req, res) => {
+    const page = parseInt(req.query.page, 10) || 0;
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const offset = limit * page;
+    const { tangkiId, startDate, endDate, isiSaatIni, search } = req.query;
+
+    try {
+      const parsedTangkiId = tangkiId ? parseInt(tangkiId, 10) : null;
+      const onlyCurrent = isAvailableKonfirmasiQuery(isiSaatIni);
+      const searchTerm = String(search || "").trim().toLowerCase();
+
+      const pengisianWhere = {};
+      if (Number.isInteger(parsedTangkiId) && parsedTangkiId > 0) {
+        pengisianWhere.tangkiId = parsedTangkiId;
+      }
+      if (onlyCurrent) {
+        pengisianWhere.BABongkarId = null;
+      }
+
+      const dateRange = {};
+      if (startDate) {
+        dateRange[Op.gte] = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateRange[Op.lte] = end;
+      }
+      if (Object.keys(dateRange).length) {
+        pengisianWhere.tanggal = dateRange;
+      }
+
+      const toNumberOrNull = (value) => {
+        if (value === null || value === undefined || value === "") return null;
+        const num = Number(value);
+        return Number.isNaN(num) ? null : num;
+      };
+
+      const pengisianList = await pengisianTanki.findAll({
+        where: pengisianWhere,
+        include: [
+          {
+            model: tanki,
+            include: [
+              { model: satuanVolume, attributes: ["id", "satuan"] },
+              {
+                model: stasiunPengumpulMinyak,
+                attributes: ["id", "nama"],
+              },
+            ],
+          },
+          { model: satuanVolume, attributes: ["id", "satuan"] },
+          { model: BABongkar, attributes: ["id", "tanggal"] },
+          {
+            model: konfirmasiPenerimaan,
+            through: { attributes: [] },
+            include: [
+              {
+                model: suratJalan,
+                include: [
+                  { model: mitra, attributes: ["id", "nama", "kode"] },
+                  { model: supir, attributes: ["id", "nama"] },
+                  { model: transportir, attributes: ["id", "plat"] },
+                  { model: satuanVolume, attributes: ["id", "satuan"] },
+                  { model: statusSuratJalan, attributes: ["id", "status"] },
+                ],
+              },
+              { model: pegawai, attributes: ["id", "nama"] },
+              getUserKPBPNInclude("userPK"),
+              getUserKPBPNInclude("userLab"),
+            ],
+          },
+        ],
+        order: [
+          ["tanggal", "DESC"],
+          ["id", "DESC"],
+        ],
+      });
+
+      const rowMap = new Map();
+
+      for (const item of pengisianList) {
+        const tangkiIdValue = item.tangkiId ?? item.tanki?.id;
+        const tankiKode = item.tanki?.kode || "-";
+        const sudahDibongkar = Boolean(item.BABongkarId);
+
+        for (const kp of item.konfirmasiPenerimaans || []) {
+          const sj = kp.suratJalan;
+          const rowKey = `${tangkiIdValue || 0}|${kp.id}`;
+          const satuanName =
+            sj?.satuanVolume?.satuan ||
+            item.satuanVolume?.satuan ||
+            "Barrel";
+          const volumeRaw =
+            toNumberOrNull(kp.volume) ?? toNumberOrNull(sj?.volume);
+          const volumeBarrel =
+            volumeRaw != null
+              ? roundBarrelVolume(convertVolumeToBarrel(volumeRaw, satuanName))
+              : 0;
+
+          if (!rowMap.has(rowKey)) {
+            rowMap.set(rowKey, {
+              konfirmasiId: kp.id,
+              nomorKonfirmasi: kp.nomor || null,
+              tanggalKonfirmasi: kp.tanggal || null,
+              volume: volumeRaw,
+              volumeBarrel,
+              satuan: satuanName,
+              api: toNumberOrNull(kp.api),
+              BSNW: toNumberOrNull(kp.BSNW),
+              catatan: kp.catatan || null,
+              suratJalanId: sj?.id || kp.suratJalanId || null,
+              nomorSuratJalan: sj?.nomor || null,
+              tanggalSuratJalan: sj?.tanggal || null,
+              mitra: sj?.mitra?.nama || null,
+              mitraKode: sj?.mitra?.kode || null,
+              supir: sj?.supir?.nama || null,
+              plat: sj?.transportir?.plat || null,
+              statusSuratJalan: sj?.statusSuratJalan?.status || null,
+              petugasPK: kp.userPK?.nama || kp.pegawai?.nama || null,
+              petugasLab: kp.userLab?.nama || null,
+              tankiId: tangkiIdValue,
+              tankiKode,
+              masihDiTanki: !sudahDibongkar,
+              pengisian: [],
+            });
+          }
+
+          const row = rowMap.get(rowKey);
+          if (!sudahDibongkar) {
+            row.masihDiTanki = true;
+          }
+          if (!row.pengisian.some((p) => p.id === item.id)) {
+            row.pengisian.push({
+              id: item.id,
+              nomorSurat: item.nomorSurat || null,
+              tanggal: item.tanggal || item.createdAt,
+              gross: item.gross,
+              net: item.net,
+              satuan: item.satuanVolume?.satuan || satuanName,
+              BABongkarId: item.BABongkarId || null,
+              tanggalBongkar: item.BABongkar?.tanggal || null,
+              sudahDibongkar,
+              tankiId: tangkiIdValue,
+              tankiKode,
+            });
+          }
+        }
+      }
+
+      const toTime = (value) => {
+        if (!value) return 0;
+        const time = new Date(value).getTime();
+        return Number.isNaN(time) ? 0 : time;
+      };
+
+      for (const row of rowMap.values()) {
+        row.pengisian.sort((a, b) => toTime(b.tanggal) - toTime(a.tanggal));
+        row.tanggalPengisian =
+          row.pengisian[0]?.tanggal ||
+          row.tanggalKonfirmasi ||
+          row.tanggalSuratJalan ||
+          null;
+      }
+
+      const matchesSearch = (row) => {
+        if (!searchTerm) return true;
+        const haystack = [
+          row.nomorSuratJalan,
+          row.nomorKonfirmasi,
+          row.mitra,
+          row.mitraKode,
+          row.supir,
+          row.plat,
+          row.tankiKode,
+          ...(row.pengisian || []).map((item) => item.nomorSurat),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(searchTerm);
+      };
+
+      const allRows = Array.from(rowMap.values())
+        .filter(matchesSearch)
+        .sort((a, b) => {
+          const diff = toTime(b.tanggalPengisian) - toTime(a.tanggalPengisian);
+          if (diff !== 0) return diff;
+          return String(b.nomorSuratJalan || "").localeCompare(
+            String(a.nomorSuratJalan || ""),
+          );
+        });
+
+      const uniqueSj = new Set(
+        allRows.map((row) => row.suratJalanId).filter(Boolean),
+      );
+      const totalVolumeBarrel = roundBarrelVolume(
+        allRows.reduce((sum, row) => sum + (Number(row.volumeBarrel) || 0), 0),
+      );
+
+      let tankiInfo = null;
+      if (Number.isInteger(parsedTangkiId) && parsedTangkiId > 0) {
+        tankiInfo = await tanki.findByPk(parsedTangkiId, {
+          include: [
+            { model: satuanVolume, attributes: ["id", "satuan"] },
+            {
+              model: stasiunPengumpulMinyak,
+              attributes: ["id", "nama"],
+            },
+          ],
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        tanki: tankiInfo,
+        result: allRows.slice(offset, offset + limit),
+        page,
+        limit,
+        totalRows: allRows.length,
+        totalPage: Math.ceil(allRows.length / limit) || 0,
+        ringkasan: {
+          jumlahSuratJalan: uniqueSj.size,
+          jumlahKonfirmasi: allRows.length,
+          jumlahPengisian: pengisianList.length,
+          totalVolumeBarrel,
+          jumlahMasihDiTanki: allRows.filter((row) => row.masihDiTanki).length,
+        },
       });
     } catch (err) {
       console.error(err);
