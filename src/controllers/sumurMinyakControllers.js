@@ -4,8 +4,11 @@ const {
   sumurMinyak,
   mitra,
   produksiSumur,
+  produksiSumurK3S,
   suratJalan,
   satuanVolume,
+  BAK3S,
+  BABongkar,
   userKPBPN,
 } = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
@@ -33,6 +36,55 @@ const resolveMitraScope = async (req) => {
   });
 
   return { isAdmin: false, mitraId: currentUser?.mitraId || null };
+};
+
+const LITER_PER_BARREL = 158.987;
+const LITER_PER_DRUM = 200;
+
+const convertVolumeToBarrel = (volume, satuanName) => {
+  const value = Number(volume);
+  if (Number.isNaN(value)) return 0;
+  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+  if (satuan === "liter") return value / LITER_PER_BARREL;
+  if (satuan === "drum") return (value * LITER_PER_DRUM) / LITER_PER_BARREL;
+  return value;
+};
+
+const roundVolumeNumber = (value, maxDecimals = 3) => {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 0;
+  const factor = 10 ** maxDecimals;
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+};
+
+const toPlain = (row) => (row?.toJSON ? row.toJSON() : row);
+
+const mapProduksiSuratJalan = (row) => {
+  const data = toPlain(row);
+  return {
+    ...data,
+    rowKey: `suratJalan-${data.id}`,
+    sumber: "suratJalan",
+    sumberLabel: "Surat Jalan",
+    referensi: data.suratJalan?.nomor || "-",
+    tanggalReferensi: data.suratJalan?.tanggal || null,
+    volumeReferensi: data.suratJalan?.volume ?? null,
+    satuanReferensi: data.suratJalan?.satuanVolume?.satuan || "",
+  };
+};
+
+const mapProduksiK3S = (row) => {
+  const data = toPlain(row);
+  return {
+    ...data,
+    rowKey: `k3s-${data.id}`,
+    sumber: "BAK3S",
+    sumberLabel: "BAK3S",
+    referensi: data.BAK3SId ? `BAK3S #${data.BAK3SId}` : "-",
+    tanggalReferensi: data.BAK3S?.BABongkar?.tanggal || null,
+    volumeReferensi: data.BAK3S?.produksi ?? null,
+    satuanReferensi: "Barrel",
+  };
 };
 
 const canAccessSumur = (sumur, scope) => {
@@ -261,38 +313,84 @@ module.exports = {
           .json({ error: "Anda tidak memiliki akses ke sumur ini" });
       }
 
-      const result = await produksiSumur.findAll({
-        where: whereCondition,
-        limit,
-        offset,
-        order: [[sortBy, sortOrder]],
-        include: [
-          { model: satuanVolume },
-          {
-            model: suratJalan,
-            include: [{ model: satuanVolume }],
-          },
-        ],
-      });
+      const pageK3s = parseInt(req.query.pageK3s) || 0;
 
-      const totalRows = await produksiSumur.count({
-        where: whereCondition,
-      });
-      const totalPage = Math.ceil(totalRows / limit);
+      const [resultSuratJalanRaw, resultK3SRaw] = await Promise.all([
+        produksiSumur.findAll({
+          where: whereCondition,
+          order: [[sortBy, sortOrder]],
+          include: [
+            { model: satuanVolume },
+            {
+              model: suratJalan,
+              include: [{ model: satuanVolume }],
+            },
+          ],
+        }),
+        produksiSumurK3S.findAll({
+          where: whereCondition,
+          order: [[sortBy, sortOrder]],
+          include: [
+            { model: satuanVolume },
+            {
+              model: BAK3S,
+              include: [{ model: BABongkar }],
+            },
+          ],
+        }),
+      ]);
 
-      const totalProduksi = await produksiSumur.sum("produksi", {
-        where: whereCondition,
-      });
+      const listSuratJalan = resultSuratJalanRaw.map(mapProduksiSuratJalan);
+      const listK3S = resultK3SRaw.map(mapProduksiK3S);
+
+      const paginate = (items, currentPage) => {
+        const totalRows = items.length;
+        const totalPage = Math.ceil(totalRows / limit) || 0;
+        const safePage = Math.min(
+          Math.max(currentPage, 0),
+          Math.max(totalPage - 1, 0),
+        );
+        const start = limit * safePage;
+        return {
+          result: items.slice(start, start + limit),
+          totalRows,
+          totalPage,
+          page: safePage,
+        };
+      };
+
+      const sumBarrel = (items) =>
+        roundVolumeNumber(
+          items.reduce(
+            (sum, item) =>
+              sum +
+              convertVolumeToBarrel(item.produksi, item.satuanVolume?.satuan),
+            0,
+          ),
+        );
+
+      const suratJalanPage = paginate(listSuratJalan, page);
+      const k3sPage = paginate(listK3S, pageK3s);
+      const totalProduksiSuratJalan = sumBarrel(listSuratJalan);
+      const totalProduksiK3S = sumBarrel(listK3S);
 
       return res.status(200).json({
         success: true,
         sumurMinyak: sumurData,
-        result,
-        totalProduksi: totalProduksi || 0,
-        page,
         limit,
-        totalRows,
-        totalPage,
+        resultSuratJalan: suratJalanPage.result,
+        page: suratJalanPage.page,
+        totalRows: suratJalanPage.totalRows,
+        totalPage: suratJalanPage.totalPage,
+        totalProduksiSuratJalan,
+        resultK3S: k3sPage.result,
+        pageK3s: k3sPage.page,
+        totalRowsK3S: k3sPage.totalRows,
+        totalPageK3S: k3sPage.totalPage,
+        totalProduksiK3S,
+        totalProduksi: roundVolumeNumber(
+          totalProduksiSuratJalan + totalProduksiK3S,
+        ),
       });
     } catch (err) {
       console.log(err);

@@ -1322,10 +1322,12 @@ module.exports = {
           success: true,
           message: "Produksi sumur berhasil disimpan",
           result: created,
-          totalProduksiLiter,
+          totalProduksiBarrel,
         });
       } catch (txErr) {
-        await transaction.rollback();
+        if (!transaction.finished) {
+          await transaction.rollback();
+        }
         throw txErr;
       }
     } catch (err) {

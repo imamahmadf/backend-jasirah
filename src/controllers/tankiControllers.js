@@ -1553,7 +1553,9 @@ module.exports = {
           totalProduksiBarrel,
         });
       } catch (txErr) {
-        await transaction.rollback();
+        if (!transaction.finished) {
+          await transaction.rollback();
+        }
         throw txErr;
       }
     } catch (err) {
