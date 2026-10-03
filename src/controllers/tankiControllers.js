@@ -458,6 +458,33 @@ const bak3sPengisianInclude = [
   },
 ];
 
+const bak3sDetailPengisianInclude = [
+  {
+    model: tanki,
+    attributes: ["id", "kode", "kapasitas", "satuanVolumeId"],
+    include: [{ model: satuanVolume }],
+  },
+  { model: satuanVolume },
+  {
+    model: konfirmasiPenerimaan,
+    through: { attributes: [] },
+    include: [
+      getUserKPBPNInclude("userPK"),
+      getUserKPBPNInclude("userLab"),
+      {
+        model: suratJalan,
+        include: [
+          { model: mitra, attributes: ["id", "nama"] },
+          { model: satuanVolume },
+          { model: transportir, attributes: ["id", "plat"] },
+          { model: supir, attributes: ["id", "nama"] },
+          { model: statusSuratJalan, attributes: ["id", "status"] },
+        ],
+      },
+    ],
+  },
+];
+
 const collectRelatedMitraFromBA = (ba) => {
   const mitraMap = new Map();
   let defaultSatuanVolumeId = null;
@@ -1350,7 +1377,7 @@ module.exports = {
                 as: "ujiLabK3S",
                 include: [{ model: tanki, attributes: ["id", "kode"] }],
               },
-              { model: pengisianTanki, include: bak3sPengisianInclude },
+              { model: pengisianTanki, include: bak3sDetailPengisianInclude },
             ],
           },
         ],
@@ -1409,7 +1436,18 @@ module.exports = {
           suratJalanIds.length
             ? produksiSumur.findAll({
                 where: { suratJalanId: suratJalanIds },
-                include: [{ model: satuanVolume }],
+                include: [
+                  { model: satuanVolume },
+                  {
+                    model: sumurMinyak,
+                    include: [{ model: mitra, attributes: ["id", "nama"] }],
+                  },
+                  {
+                    model: suratJalan,
+                    attributes: ["id", "nomor", "tanggal", "volume"],
+                  },
+                ],
+                order: [["id", "ASC"]],
               })
             : [],
         ]);
@@ -1444,6 +1482,7 @@ module.exports = {
         defaultSatuanVolumeId,
         defaultSatuanName,
         defaultProduksi,
+        resultProduksiSumber,
         resultSumurMinyak,
         resultProduksi,
         resultSatuanVolume,
