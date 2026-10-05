@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
   produksiSumur.init(
     {
       produksi: DataTypes.DECIMAL(10, 3),
-      sumurMinyakId: DataTypes.INTEGER,
+       sumurMinyakId: DataTypes.INTEGER,
       suratJalanId: DataTypes.INTEGER,
       satuanVolumeId: DataTypes.INTEGER,
       tanggal: DataTypes.DATE,
