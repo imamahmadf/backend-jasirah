@@ -2,7 +2,12 @@ const fs = require("fs");
 const path = require("path");
 const { templateKPBPN, sequelize } = require("../models");
 
-const JENIS_DOKUMEN = ["BAST", "BABongkar", "suratJalan"];
+const JENIS_DOKUMEN = [
+  "BAST",
+  "BABongkar",
+  "suratJalan",
+  "konfirmasiPenerimaan",
+];
 const STATUS_VALUES = ["aktif", "nonaktif"];
 
 const deleteFileIfExists = (filePath) => {

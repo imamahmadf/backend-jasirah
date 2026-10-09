@@ -29,6 +29,15 @@ const templateKPBPNs = [
     createdAt: currentDate,
     updatedAt: currentDate,
   },
+  {
+    id: 4,
+    nama: "konfirmasi penerimaan",
+    jenisDokumen: "konfirmasiPenerimaan",
+    template: "/konfirmasi-penerimaan/konfirmasi-penerimaan.docx",
+    status: "aktif",
+    createdAt: currentDate,
+    updatedAt: currentDate,
+  },
 ];
 
 /** @type {import('sequelize-cli').Migration} */

@@ -9,7 +9,12 @@ module.exports = (sequelize, DataTypes) => {
   templateKPBPN.init(
     {
       nama: DataTypes.STRING,
-      jenisDokumen: DataTypes.ENUM("BAST", "BABongkar", "suratJalan"),
+      jenisDokumen: DataTypes.ENUM(
+        "BAST",
+        "BABongkar",
+        "suratJalan",
+        "konfirmasiPenerimaan",
+      ),
       template: DataTypes.STRING,
       status: DataTypes.ENUM("aktif", "nonaktif"),
     },
