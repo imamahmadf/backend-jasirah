@@ -1699,7 +1699,12 @@ module.exports = {
                       { model: BAK3S, as: "BAK3S" },
                       {
                         model: BABongkarTanki,
-                        include: [{ model: tanki, attributes: ["id", "kode"] }],
+                        include: [
+                          {
+                            model: tanki,
+                            attributes: ["id", "kode", "factorTank"],
+                          },
+                        ],
                       },
                     ],
                   },
