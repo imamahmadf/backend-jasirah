@@ -38,6 +38,10 @@ const {
   buildSuratJalanDocxFromRecord,
   buildSuratJalanDownloadBaseName,
 } = require("../utils/suratJalanDocx");
+const {
+  buildKonfirmasiPenerimaanDocx,
+  buildKonfirmasiPenerimaanDownloadBaseName,
+} = require("../utils/konfirmasiPenerimaanDocx");
 const { getActiveTemplateFilePath } = require("../utils/templateKPBPN");
 const { convertDocxToPdf } = require("../utils/docxToPdf");
 const { getRomanMonth } = require("../lib/perjalananHelpers");
@@ -128,6 +132,24 @@ const roundVolumeNumber = (value, maxDecimals = 3) => {
   return Math.round((num + Number.EPSILON) * factor) / factor;
 };
 
+const calcVolumeDrum = (tinggiCm, panjangCm, lebarCm) => {
+  const tinggi = parseDecimalBody(tinggiCm);
+  const panjang = parseDecimalBody(panjangCm);
+  const lebar = parseDecimalBody(lebarCm);
+  if (
+    tinggi === null ||
+    panjang === null ||
+    lebar === null ||
+    tinggi <= 0 ||
+    panjang <= 0 ||
+    lebar <= 0
+  ) {
+    return null;
+  }
+  const liter = (tinggi * panjang * lebar) / 1000;
+  return roundVolumeNumber(liter / LITER_PER_DRUM, 3);
+};
+
 const parseProduksiNumber = (value) => {
   const parsed = parseDecimalBody(value);
   if (parsed === null || parsed <= 0) return 0;
@@ -158,6 +180,99 @@ const getUploadedKonfirmasiFile = (req, fieldName) =>
 
 const buildKonfirmasiFotoPath = (file) =>
   file ? `/konfirmasi-penerimaan/${file.filename}` : null;
+
+const konfirmasiDokumenInclude = [
+  { model: satuanVolume },
+  {
+    model: suratJalan,
+    include: [
+      { model: mitra, include: [{ model: jenisMitra }] },
+      {
+        model: transportir,
+        include: [{ model: satuanVolume }],
+      },
+      { model: supir },
+      { model: satuanVolume },
+    ],
+  },
+];
+
+const nomorUrutDariSuratJalan = (nomorSuratJalan) => {
+  const bagian = String(nomorSuratJalan || "")
+    .trim()
+    .split("/")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const kepala = bagian[0] || "";
+  const urut = kepala.match(/(\d{3})$/)?.[1];
+  if (!urut) return null;
+  return {
+    urut,
+    bulan: bagian.length >= 2 ? bagian[bagian.length - 2] : "",
+    tahun: bagian[bagian.length - 1] || "",
+  };
+};
+
+const assignNomorBeritaAcara = async (konfirmasiRow) => {
+  if (konfirmasiRow?.nomor) return konfirmasiRow.nomor;
+
+  const suratJalanId =
+    konfirmasiRow?.suratJalanId || konfirmasiRow?.suratJalan?.id;
+  if (!suratJalanId) {
+    throw new Error("Surat jalan konfirmasi penerimaan tidak ditemukan");
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    const locked = await konfirmasiPenerimaan.findByPk(konfirmasiRow.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!locked) {
+      throw new Error("Konfirmasi penerimaan tidak ditemukan");
+    }
+    if (locked.nomor) {
+      konfirmasiRow.nomor = locked.nomor;
+      return locked.nomor;
+    }
+
+    const surat = await suratJalan.findByPk(locked.suratJalanId, {
+      transaction,
+      include: [{ model: mitra }],
+    });
+
+    if (!surat?.nomor) {
+      throw new Error("Nomor surat jalan belum tersedia");
+    }
+    if (!surat.mitra?.kode) {
+      throw new Error("Kode mitra tidak ditemukan untuk nomor berita acara");
+    }
+
+    const pecahan = nomorUrutDariSuratJalan(surat.nomor);
+    if (!pecahan) {
+      throw new Error("Nomor urut tidak ditemukan pada nomor surat jalan");
+    }
+
+    const tanggalSurat = new Date(surat.tanggal || Date.now());
+    const bulan =
+      pecahan.bulan ||
+      getRomanMonth(
+        Number.isNaN(tanggalSurat.getTime()) ? new Date() : tanggalSurat,
+      );
+    const tahun =
+      pecahan.tahun ||
+      String(
+        Number.isNaN(tanggalSurat.getTime())
+          ? new Date().getFullYear()
+          : tanggalSurat.getFullYear(),
+      );
+    const nomor = `${pecahan.urut}/BAP/KPBPN-${surat.mitra.kode}/${bulan}/${tahun}`;
+
+    await locked.update({ nomor }, { transaction });
+    konfirmasiRow.nomor = nomor;
+    return nomor;
+  });
+};
 
 module.exports = {
   getSuratJalan: async (req, res) => {
@@ -871,10 +986,14 @@ module.exports = {
         });
       }
 
-      if (existing.statusSuratJalanId === 3 || existing.statusSuratJalanId === 5) {
+      if (
+        existing.statusSuratJalanId === 3 ||
+        existing.statusSuratJalanId === 5 ||
+        existing.statusSuratJalanId === 6
+      ) {
         return res.status(400).json({
           error:
-            "Surat jalan yang sudah tiba atau dibongkar tidak dapat dibatalkan",
+            "Surat jalan yang sudah tiba, dikonfirmasi volumenya, atau dibongkar tidak dapat dibatalkan",
         });
       }
 
@@ -916,6 +1035,70 @@ module.exports = {
         success: true,
         message: "Surat jalan berhasil dibatalkan",
         result: existing,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getDaftarKonfirmasiPenerimaan: async (req, res) => {
+    const page = parseInt(req.query.page, 10) || 0;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = limit * page;
+    const search = String(req.query.search || "").trim();
+
+    const where = {};
+    const include = [
+      getUserKPBPNInclude("userPK"),
+      getUserKPBPNInclude("userLab"),
+      { model: satuanVolume, attributes: ["id", "satuan"] },
+      {
+        model: suratJalan,
+        include: [
+          { model: mitra, attributes: ["id", "nama"] },
+          { model: satuanVolume, attributes: ["id", "satuan"] },
+          { model: statusSuratJalan, attributes: ["id", "status"] },
+        ],
+      },
+    ];
+
+    if (search) {
+      const term = { [Op.like]: `%${search}%` };
+      where[Op.or] = [
+        { nomor: term },
+        { "$suratJalan.nomor$": term },
+        { "$suratJalan.mitra.nama$": term },
+      ];
+    }
+
+    try {
+      const result = await konfirmasiPenerimaan.findAll({
+        where,
+        include,
+        limit,
+        offset,
+        subQuery: false,
+        order: [
+          ["tanggal", "DESC"],
+          ["id", "DESC"],
+        ],
+      });
+
+      const totalRows = await konfirmasiPenerimaan.count({
+        where,
+        include,
+        distinct: true,
+        col: "id",
+      });
+
+      return res.status(200).json({
+        success: true,
+        result,
+        page,
+        limit,
+        totalRows,
+        totalPage: Math.ceil(totalRows / limit),
       });
     } catch (err) {
       console.log(err);
@@ -1057,8 +1240,24 @@ module.exports = {
     }
 
     const id = parseInt(req.params.id, 10);
-    const { tanggal, volume, pegawaiId, catatan, api, BSNW, tahap } = req.body;
-    const isBongkar = String(tahap || "").toLowerCase() === "bongkar";
+    const {
+      tanggal,
+      volume,
+      volumeAir,
+      volumeAkhir,
+      tinggiCairan,
+      pegawaiId,
+      catatan,
+      api,
+      BSNW,
+      SG,
+      nomor,
+      tahap,
+    } = req.body;
+    const tahapKonfirmasi = String(tahap || "").toLowerCase();
+    const isBongkar = tahapKonfirmasi === "bongkar";
+    const isVolume = tahapKonfirmasi === "volume";
+    const isEditVolume = tahapKonfirmasi === "edit-volume";
 
     if (!id) {
       return res
@@ -1068,21 +1267,61 @@ module.exports = {
 
     const apiValue = parseDecimalBody(api);
     const bsnwValue = parseDecimalBody(BSNW);
+    const sgValue = parseDecimalBody(SG);
+    const volumeAirValue = parseDecimalBody(volumeAir);
+    const volumeAkhirValue = parseDecimalBody(volumeAkhir);
+    const parsedVolume = parseDecimalBody(volume);
+    const volumeValue =
+      parsedVolume === null ? null : roundVolumeNumber(parsedVolume, 3);
+    const tinggiCairanValue = parseDecimalBody(tinggiCairan);
     const parsedPegawaiId = pegawaiId ? parseInt(pegawaiId, 10) : null;
 
-    if (
+    if (isVolume || isEditVolume) {
+      const tinggiBelumDiisi =
+        isVolume && (tinggiCairanValue === null || tinggiCairanValue <= 0);
+      const airTidakValid =
+        volumeAirValue !== null && volumeAirValue < 0;
+      const editBelumLengkap =
+        isEditVolume &&
+        (volumeValue === null ||
+          volumeValue <= 0 ||
+          volumeAirValue === null ||
+          !String(nomor ?? "").trim());
+      if (tinggiBelumDiisi || airTidakValid || editBelumLengkap) {
+        return res.status(400).json({
+          error: isEditVolume
+            ? "Nomor konfirmasi, volume, dan volume air wajib diisi"
+            : tinggiBelumDiisi
+              ? "Tinggi cairan wajib diisi"
+              : "Volume air tidak valid",
+        });
+      }
+    } else if (isBongkar) {
+      if (
+        !tanggal ||
+        apiValue === null ||
+        bsnwValue === null ||
+        sgValue === null
+      ) {
+        return res.status(400).json({ error: "Semua field wajib diisi" });
+      }
+    } else if (
       !tanggal ||
-      volume === undefined ||
-      volume === "" ||
+      volumeValue === null ||
+      volumeValue <= 0 ||
+      volumeAirValue === null ||
+      volumeAirValue < 0 ||
       apiValue === null ||
-      bsnwValue === null
+      bsnwValue === null ||
+      sgValue === null ||
+      !String(nomor ?? "").trim()
     ) {
       return res.status(400).json({ error: "Semua field wajib diisi" });
     }
 
     try {
       const existing = await konfirmasiPenerimaan.findByPk(id, {
-        include: [{ model: suratJalan }],
+        include: [{ model: suratJalan, include: [{ model: transportir }] }],
       });
 
       if (!existing) {
@@ -1100,53 +1339,167 @@ module.exports = {
         });
       }
 
-      if (isBongkar && statusId !== 3) {
+      if (isVolume && statusId !== 3) {
         return res.status(400).json({
           error:
-            "Konfirmasi bongkar hanya dapat dilakukan untuk surat jalan berstatus TIBA",
+            "Konfirmasi volume hanya dapat dilakukan untuk surat jalan berstatus TIBA",
+        });
+      }
+
+      if (isEditVolume && statusId !== 6) {
+        return res.status(400).json({
+          error:
+            "Perubahan nomor dan volume hanya dapat dilakukan saat status masih VOLUME",
+        });
+      }
+
+      if (!isVolume && !isBongkar && !isEditVolume && statusId === 6) {
+        return res.status(400).json({
+          error:
+            "Saat status masih VOLUME, hanya nomor konfirmasi dan data volume yang dapat diubah",
+        });
+      }
+
+      if (isBongkar && statusId !== 6) {
+        return res.status(400).json({
+          error:
+            "Konfirmasi bongkar hanya dapat dilakukan setelah konfirmasi volume",
         });
       }
 
       let foto = existing.foto;
       let fotoLab = existing.fotoLab;
-      const uploadedFoto = getUploadedKonfirmasiFile(req, "foto");
-      const uploadedFotoLab = getUploadedKonfirmasiFile(req, "fotoLab");
+      if (!isEditVolume) {
+        const uploadedFoto = getUploadedKonfirmasiFile(req, "foto");
+        const uploadedFotoLab = getUploadedKonfirmasiFile(req, "fotoLab");
 
-      if (uploadedFoto) {
-        deleteKonfirmasiFoto(existing.foto);
-        foto = buildKonfirmasiFotoPath(uploadedFoto);
-      }
-      if (uploadedFotoLab) {
-        deleteKonfirmasiFoto(existing.fotoLab);
-        fotoLab = buildKonfirmasiFotoPath(uploadedFotoLab);
+        if (uploadedFoto) {
+          deleteKonfirmasiFoto(existing.foto);
+          foto = buildKonfirmasiFotoPath(uploadedFoto);
+        }
+        if (uploadedFotoLab) {
+          deleteKonfirmasiFoto(existing.fotoLab);
+          fotoLab = buildKonfirmasiFotoPath(uploadedFotoLab);
+        }
       }
 
-      const updatePayload = {
-        tanggal: new Date(tanggal),
-        volume: parseInt(volume, 10),
-        pegawaiId:
-          pegawaiId === undefined || pegawaiId === null || pegawaiId === ""
-            ? existing.pegawaiId
-            : Number.isNaN(parsedPegawaiId)
-              ? existing.pegawaiId
-              : parsedPegawaiId,
-        catatan: catatan || null,
-        api: apiValue,
-        BSNW: bsnwValue,
-        foto,
-        fotoLab,
+      let volumeDrum = volumeValue;
+      let satuanVolumeId =
+        existing.satuanVolumeId ?? existing.suratJalan?.satuanVolumeId;
+      if (isVolume) {
+        volumeDrum = calcVolumeDrum(
+          tinggiCairan,
+          existing.suratJalan?.transportir?.panjang,
+          existing.suratJalan?.transportir?.lebar,
+        );
+        if (volumeDrum === null || volumeDrum <= 0) {
+          return res.status(400).json({
+            error:
+              "Panjang dan lebar transportir belum lengkap, volume drum tidak dapat dihitung",
+          });
+        }
+        const drumSatuan = await satuanVolume.findOne({
+          where: { satuan: "Drum" },
+        });
+        if (!drumSatuan) {
+          return res.status(400).json({
+            error: "Satuan volume Drum tidak ditemukan",
+          });
+        }
+        satuanVolumeId = drumSatuan.id;
+      }
+
+      const volumeAirTerisi = volumeAirValue !== null;
+      if (!isBongkar && volumeAirTerisi && volumeAirValue > volumeDrum) {
+        return res.status(400).json({
+          error: "Volume air tidak boleh lebih besar dari volume",
+        });
+      }
+
+      const volumeAkhirSimpan = volumeAirTerisi
+        ? roundVolumeNumber(volumeDrum - volumeAirValue, 3)
+        : null;
+
+      const volumeFields = {
+        volume: volumeDrum,
+        volumeAir: volumeAirTerisi ? volumeAirValue : null,
+        volumeAkhir: isBongkar ? volumeAkhirValue : volumeAkhirSimpan,
+        satuanVolumeId,
       };
 
-      if (isBongkar) {
-        updatePayload.userLabId =
-          resolveUserKPBPNId(req, "userLabId") ?? existing.userLabId;
+      const nomorBaru = String(nomor ?? "").trim();
+      if ((isEditVolume || (!isVolume && !isBongkar)) && nomorBaru) {
+        const nomorDipakai = await konfirmasiPenerimaan.findOne({
+          where: {
+            nomor: nomorBaru,
+            id: { [Op.ne]: id },
+          },
+        });
+        if (nomorDipakai) {
+          return res.status(400).json({
+            error: "Nomor konfirmasi sudah digunakan",
+          });
+        }
+      }
+
+      let updatePayload;
+      const volumeLengkap = isVolume && volumeAirValue !== null;
+
+      if (isVolume) {
+        updatePayload = {
+          ...volumeFields,
+          tinggiCairan: tinggiCairanValue,
+        };
+      } else if (isEditVolume) {
+        updatePayload = {
+          nomor: nomorBaru,
+          ...volumeFields,
+        };
+      } else if (isBongkar) {
+        updatePayload = {
+          tanggal: new Date(tanggal),
+          catatan: catatan || null,
+          api: apiValue,
+          BSNW: bsnwValue,
+          SG: sgValue,
+          foto,
+          fotoLab,
+          userLabId:
+            resolveUserKPBPNId(req, "userLabId") ?? existing.userLabId,
+        };
+      } else {
+        updatePayload = {
+          nomor: nomorBaru,
+          tanggal: new Date(tanggal),
+          ...volumeFields,
+          pegawaiId:
+            pegawaiId === undefined || pegawaiId === null || pegawaiId === ""
+              ? existing.pegawaiId
+              : Number.isNaN(parsedPegawaiId)
+                ? existing.pegawaiId
+                : parsedPegawaiId,
+          catatan: catatan || null,
+          api: apiValue,
+          BSNW: bsnwValue,
+          SG: sgValue,
+          foto,
+          fotoLab,
+        };
       }
 
       await existing.update(updatePayload);
 
-      if (isBongkar && existing.suratJalanId) {
+      if (volumeLengkap) {
+        try {
+          await assignNomorBeritaAcara(existing);
+        } catch (nomorErr) {
+          console.error("Gagal membuat nomor berita acara:", nomorErr);
+        }
+      }
+
+      if (existing.suratJalanId && (volumeLengkap || isBongkar)) {
         await suratJalan.update(
-          { statusSuratJalanId: 5 },
+          { statusSuratJalanId: volumeLengkap ? 6 : 5 },
           { where: { id: existing.suratJalanId } },
         );
       }
@@ -1154,13 +1507,25 @@ module.exports = {
       try {
         const io = req.app.get("socketio");
         await notifyDashboardChange(io, {
-          type: isBongkar ? "konfirmasi:bongkar" : "konfirmasi:updated",
+          type: isBongkar
+            ? "konfirmasi:bongkar"
+            : isVolume
+              ? "konfirmasi:volume"
+              : "konfirmasi:updated",
           title: isBongkar
             ? "Konfirmasi Bongkar"
-            : "Konfirmasi Penerimaan Diperbarui",
+            : isVolume
+              ? volumeLengkap
+                ? "Konfirmasi Volume"
+                : "Tinggi Cairan Tersimpan"
+              : "Konfirmasi Penerimaan Diperbarui",
           description: isBongkar
             ? `Konfirmasi bongkar #${id} disimpan`
-            : `Konfirmasi penerimaan #${id} diperbarui`,
+            : isVolume
+              ? volumeLengkap
+                ? `Konfirmasi volume #${id} disimpan`
+                : `Tinggi cairan konfirmasi #${id} disimpan`
+              : `Konfirmasi penerimaan #${id} diperbarui`,
           entity: "konfirmasiPenerimaan",
           entityId: id,
         });
@@ -1175,9 +1540,79 @@ module.exports = {
         success: true,
         message: isBongkar
           ? "Konfirmasi bongkar berhasil disimpan"
-          : "Konfirmasi penerimaan berhasil diperbarui",
+          : isVolume
+            ? volumeLengkap
+              ? "Konfirmasi volume berhasil disimpan"
+              : "Tinggi cairan berhasil disimpan"
+            : "Konfirmasi penerimaan berhasil diperbarui",
+        lengkap: isVolume ? volumeLengkap : true,
         result: existing,
       });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  cetakBeritaAcaraPengukuran: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+
+    if (!id) {
+      return res
+        .status(400)
+        .json({ error: "ID konfirmasi penerimaan tidak valid" });
+    }
+
+    try {
+      const record = await konfirmasiPenerimaan.findByPk(id, {
+        include: konfirmasiDokumenInclude,
+      });
+
+      if (!record) {
+        return res
+          .status(404)
+          .json({ error: "Konfirmasi penerimaan tidak ditemukan" });
+      }
+
+      if (
+        record.volume === null ||
+        record.volume === undefined ||
+        record.volumeAir === null ||
+        record.volumeAir === undefined ||
+        record.volumeAkhir === null ||
+        record.volumeAkhir === undefined
+      ) {
+        return res.status(400).json({
+          error:
+            "Berita acara pengukuran hanya dapat dibuat setelah konfirmasi volume lengkap",
+        });
+      }
+
+      await assignNomorBeritaAcara(record);
+
+      const templatePath = await getActiveTemplateFilePath(
+        "konfirmasiPenerimaan",
+      );
+      if (!templatePath) {
+        return res.status(400).json({
+          error:
+            "Template konfirmasi penerimaan aktif tidak ditemukan. Unggah dan aktifkan template pada menu Template Dokumen KPBPN.",
+        });
+      }
+
+      const docxBuffer = buildKonfirmasiPenerimaanDocx(record, templatePath);
+      const outputFileName = `${buildKonfirmasiPenerimaanDownloadBaseName(record)}.docx`;
+      const encodedFileName = encodeURIComponent(outputFileName);
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${outputFileName}"; filename*=UTF-8''${encodedFileName}`,
+      );
+      return res.send(docxBuffer);
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -1200,18 +1635,58 @@ module.exports = {
         return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
       }
 
-      const [resultSumurMinyak, resultProduksi, resultSatuanVolume] =
-        await Promise.all([
-          sumurMinyak.findAll({
-            where: { mitraId: suratJalanData.mitraId },
-            order: [["nama", "ASC"]],
-          }),
-          produksiSumur.findAll({
-            where: { suratJalanId },
-            include: [{ model: sumurMinyak }, { model: satuanVolume }],
-          }),
-          satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
-        ]);
+      const tanggalSurat = suratJalanData.tanggal
+        ? new Date(suratJalanData.tanggal)
+        : null;
+      const tanggalValid =
+        tanggalSurat && !Number.isNaN(tanggalSurat.getTime());
+      const awalHari = tanggalValid ? new Date(tanggalSurat) : null;
+      const akhirHari = tanggalValid ? new Date(tanggalSurat) : null;
+      if (tanggalValid) {
+        awalHari.setHours(0, 0, 0, 0);
+        akhirHari.setHours(23, 59, 59, 999);
+      }
+
+      const [
+        resultSumurMinyak,
+        resultProduksi,
+        resultSatuanVolume,
+        produksiHariIni,
+      ] = await Promise.all([
+        sumurMinyak.findAll({
+          where: { mitraId: suratJalanData.mitraId },
+          order: [["nama", "ASC"]],
+        }),
+        produksiSumur.findAll({
+          where: { suratJalanId },
+          include: [{ model: sumurMinyak }, { model: satuanVolume }],
+        }),
+        satuanVolume.findAll({ order: [["satuan", "ASC"]] }),
+        tanggalValid
+          ? produksiSumur.findAll({
+              attributes: ["sumurMinyakId"],
+              where: {
+                suratJalanId: { [Op.ne]: suratJalanId },
+                produksi: { [Op.gt]: 0 },
+              },
+              include: [
+                {
+                  model: suratJalan,
+                  attributes: [],
+                  required: true,
+                  where: {
+                    mitraId: suratJalanData.mitraId,
+                    tanggal: { [Op.between]: [awalHari, akhirHari] },
+                  },
+                },
+              ],
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const sumurTerisiHariIni = [
+        ...new Set(produksiHariIni.map((row) => row.sumurMinyakId)),
+      ];
 
       return res.status(200).json({
         success: true,
@@ -1219,6 +1694,7 @@ module.exports = {
         resultSumurMinyak,
         resultProduksi,
         resultSatuanVolume,
+        sumurTerisiHariIni,
       });
     } catch (err) {
       console.log(err);

@@ -25,6 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       kode: DataTypes.STRING,
       nomorUrut: DataTypes.INTEGER,
       nomorUrutSuratJalan: DataTypes.INTEGER,
+      nomorUrutKonfirmasi: DataTypes.INTEGER,
       jenisMitraId: DataTypes.INTEGER,
     },
     {

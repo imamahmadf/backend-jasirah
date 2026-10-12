@@ -14,6 +14,13 @@ const {
 const { Op } = require("sequelize");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
 
+const parseDecimalInput = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim().replace(",", ".");
+  const num = parseFloat(normalized);
+  return Number.isNaN(num) ? null : num;
+};
+
 module.exports = {
   getMitra: async (req, res) => {
     try {
@@ -60,6 +67,7 @@ module.exports = {
         jenisMitraId: jenisMitraId ? parseInt(jenisMitraId) : null,
         nomorUrut: 0,
         nomorUrutSuratJalan: 0,
+        nomorUrutKonfirmasi: 0,
       });
 
       const io = req.app.get("socketio");
@@ -80,7 +88,16 @@ module.exports = {
 
   addTransportir: async (req, res) => {
     try {
-      const { plat, kapasitas, jenisTransportirId, satuanVolumeId } = req.body;
+      const {
+        plat,
+        kapasitas,
+        jenisTransportirId,
+        satuanVolumeId,
+        panjang,
+        lebar,
+        tinggi,
+        factorTank,
+      } = req.body;
       const filePath = "transportir";
       let foto = null;
       if (req.file) {
@@ -94,6 +111,10 @@ module.exports = {
         jenisTransportirId,
         satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId) : null,
         kapasitas: parseInt(kapasitas),
+        panjang: parseDecimalInput(panjang),
+        lebar: parseDecimalInput(lebar),
+        tinggi: parseDecimalInput(tinggi),
+        factorTank: parseDecimalInput(factorTank),
       });
 
       const io = req.app.get("socketio");
@@ -254,7 +275,16 @@ module.exports = {
   editTransportir: async (req, res) => {
     try {
       const { id } = req.params;
-      const { plat, kapasitas, jenisTransportirId, satuanVolumeId } = req.body;
+      const {
+        plat,
+        kapasitas,
+        jenisTransportirId,
+        satuanVolumeId,
+        panjang,
+        lebar,
+        tinggi,
+        factorTank,
+      } = req.body;
 
       const existing = await transportir.findByPk(id);
       if (!existing) {
@@ -274,6 +304,10 @@ module.exports = {
           jenisTransportirId,
           satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId) : null,
           kapasitas: parseInt(kapasitas),
+          panjang: parseDecimalInput(panjang),
+          lebar: parseDecimalInput(lebar),
+          tinggi: parseDecimalInput(tinggi),
+          factorTank: parseDecimalInput(factorTank),
         },
         { where: { id } },
       );

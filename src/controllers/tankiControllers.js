@@ -471,6 +471,7 @@ const bak3sDetailPengisianInclude = [
     include: [
       getUserKPBPNInclude("userPK"),
       getUserKPBPNInclude("userLab"),
+      { model: satuanVolume },
       {
         model: suratJalan,
         include: [

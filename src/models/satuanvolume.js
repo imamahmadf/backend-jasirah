@@ -15,6 +15,9 @@ module.exports = (sequelize, DataTypes) => {
       this.hasMany(models.produksiSumur, { foreignKey: "satuanVolumeId" });
       this.hasMany(models.produksiSumurK3S, { foreignKey: "satuanVolumeId" });
       this.hasMany(models.tanki, { foreignKey: "satuanVolumeId" });
+      this.hasMany(models.konfirmasiPenerimaan, {
+        foreignKey: "satuanVolumeId",
+      });
     }
   }
   satuanVolume.init(

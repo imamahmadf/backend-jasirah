@@ -7,11 +7,19 @@ const routers = express.Router();
 routers.get("/public/:kode", pengirimanControllers.getSuratJalanByVerifikasi);
 routers.get("/get", pengirimanControllers.getSuratJalan);
 routers.get(
+  "/get/daftar-konfirmasi",
+  pengirimanControllers.getDaftarKonfirmasiPenerimaan,
+);
+routers.get(
   "/get/konfirmasi/:suratJalanId",
   pengirimanControllers.getKonfirmasiBySuratJalan,
 );
 routers.get("/get/seed", pengirimanControllers.getSeed);
 routers.get("/get/cetak/:id", pengirimanControllers.cetakSuratJalan);
+routers.get(
+  "/get/cetak-konfirmasi/:id",
+  pengirimanControllers.cetakBeritaAcaraPengukuran,
+);
 routers.post("/post", pengirimanControllers.addSuratJalan);
 routers.post("/edit/:id", pengirimanControllers.editSuratJalan);
 routers.post("/delete/:id", pengirimanControllers.deleteSuratJalan);

@@ -75,14 +75,15 @@ const mapProduksiSuratJalan = (row) => {
 
 const mapProduksiK3S = (row) => {
   const data = toPlain(row);
+  const bak3s = data.BAK3S || data.BAK3;
   return {
     ...data,
     rowKey: `k3s-${data.id}`,
     sumber: "BAK3S",
     sumberLabel: "BAK3S",
     referensi: data.BAK3SId ? `BAK3S #${data.BAK3SId}` : "-",
-    tanggalReferensi: data.BAK3S?.BABongkar?.tanggal || null,
-    volumeReferensi: data.BAK3S?.produksi ?? null,
+    tanggalReferensi: bak3s?.BABongkar?.tanggal || null,
+    volumeReferensi: bak3s?.produksi ?? null,
     satuanReferensi: "Barrel",
   };
 };
@@ -342,6 +343,16 @@ module.exports = {
 
       const listSuratJalan = resultSuratJalanRaw.map(mapProduksiSuratJalan);
       const listK3S = resultK3SRaw.map(mapProduksiK3S);
+      const combined = [...listSuratJalan, ...listK3S].sort((a, b) => {
+        if (sortBy === "produksi") {
+          const aNum = Number(a.produksi) || 0;
+          const bNum = Number(b.produksi) || 0;
+          return sortOrder === "ASC" ? aNum - bNum : bNum - aNum;
+        }
+        const aTime = new Date(a[sortBy] || 0).getTime();
+        const bTime = new Date(b[sortBy] || 0).getTime();
+        return sortOrder === "ASC" ? aTime - bTime : bTime - aTime;
+      });
 
       const paginate = (items, currentPage) => {
         const totalRows = items.length;
@@ -378,10 +389,11 @@ module.exports = {
         success: true,
         sumurMinyak: sumurData,
         limit,
-        resultSuratJalan: suratJalanPage.result,
+        result: paginate(combined, page).result,
         page: suratJalanPage.page,
         totalRows: suratJalanPage.totalRows,
         totalPage: suratJalanPage.totalPage,
+        resultSuratJalan: suratJalanPage.result,
         totalProduksiSuratJalan,
         resultK3S: k3sPage.result,
         pageK3s: k3sPage.page,
