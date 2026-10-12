@@ -50,6 +50,49 @@ function formatPukul(time) {
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
+function formatUkuran(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  if (Number.isNaN(num)) return null;
+  if (Number.isInteger(num)) return String(num);
+  return new Intl.NumberFormat("id-ID", {
+    maximumFractionDigits: 3,
+  }).format(num);
+}
+
+function formatUkuranTanki(transportir) {
+  const panjang = formatUkuran(transportir?.panjang);
+  const lebar = formatUkuran(transportir?.lebar);
+  const tinggi = formatUkuran(transportir?.tinggi);
+  if (!panjang || !lebar || !tinggi) return "-";
+  return `(${panjang} x ${lebar} x ${tinggi})`;
+}
+
+const LITER_PER_BARREL = 158.987;
+const LITER_PER_DRUM = 200;
+
+function toLiter(volume, satuanName) {
+  const satuan = String(satuanName || "barrel")
+    .trim()
+    .toLowerCase();
+  if (satuan === "barrel") return volume * LITER_PER_BARREL;
+  if (satuan === "drum") return volume * LITER_PER_DRUM;
+  return volume;
+}
+
+function fromLiter(liter, satuanName) {
+  const satuan = String(satuanName || "barrel")
+    .trim()
+    .toLowerCase();
+  if (satuan === "barrel") return liter / LITER_PER_BARREL;
+  if (satuan === "drum") return liter / LITER_PER_DRUM;
+  return liter;
+}
+
+function roundVolume(value) {
+  return Math.round((value + Number.EPSILON) * 1000) / 1000;
+}
+
 function buildKonfirmasiPenerimaanRenderData(record) {
   const suratJalan = record?.suratJalan;
   const mitra = suratJalan?.mitra;
@@ -66,11 +109,16 @@ function buildKonfirmasiPenerimaanRenderData(record) {
     return Number.isNaN(num) ? null : num;
   };
   const volume = toNumber(record?.volume);
-  const volumeAir = toNumber(record?.volumeAir);
-  const volumeAkhir = toNumber(record?.volumeAkhir);
+  const volumeSuratJalan = toNumber(suratJalan?.volume);
+  const satuanSuratJalan =
+    suratJalan?.satuanVolume?.satuan || satuan || "barrel";
+  const satuanSelisih = satuan || satuanSuratJalan;
   const selisih =
-    volume !== null && volumeAir !== null && volumeAkhir !== null
-      ? volume - volumeAir - volumeAkhir
+    volume !== null && volumeSuratJalan !== null
+      ? roundVolume(
+          fromLiter(toLiter(volumeSuratJalan, satuanSuratJalan), satuanSelisih) -
+            volume,
+        )
       : null;
 
   return {
@@ -86,13 +134,14 @@ function buildKonfirmasiPenerimaanRenderData(record) {
     namaSupir: suratJalan?.supir?.nama || "-",
     noSuratJalan: suratJalan?.nomor || "-",
     KapasitasMobil: withSatuan(
-      transportir?.kapasitas,
-      transportir?.satuanVolume?.satuan,
+      suratJalan?.volume,
+      suratJalan?.satuanVolume?.satuan,
     ),
+    ukuranTanki: formatUkuranTanki(transportir),
     volume: withSatuan(record?.volume, satuan),
     volumeAir: withSatuan(record?.volumeAir, satuan),
     volumeAkhir: withSatuan(record?.volumeAkhir, satuan),
-    selisihVolume: withSatuan(selisih, satuan),
+    selisihVolume: withSatuan(selisih, satuanSelisih),
     bsnw: formatAngka(record?.BSNW) ?? "-",
     gs: formatAngka(record?.SG) ?? "-",
     api: formatAngka(record?.api) ?? "-",
