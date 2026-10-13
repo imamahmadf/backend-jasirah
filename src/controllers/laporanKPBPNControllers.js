@@ -19,6 +19,7 @@ const {
   produksiSumur,
   produksiSumurK3S,
   sumurMinyak,
+  ujiLabK3S,
 } = require("../models");
 const { ROLE_KPBPN, getKpbpnRoleIds } = require("../lib/auth");
 const {
@@ -132,6 +133,49 @@ const handleError = (res, err) => {
 
 const uniqueJoin = (values) =>
   [...new Set((values || []).filter(Boolean))].join(", ") || null;
+
+const LITER_PER_BARREL = 158.987;
+const LITER_PER_DRUM = 200;
+
+const roundVolume = (value, maxDecimals = 3) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  const factor = 10 ** maxDecimals;
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+};
+
+const convertVolumeToBarrel = (volume, satuanName) => {
+  const value = toNumber(volume);
+  if (value === null) return null;
+  const satuan = String(satuanName || "barrel").trim().toLowerCase();
+  if (satuan === "liter") return value / LITER_PER_BARREL;
+  if (satuan === "drum") return (value * LITER_PER_DRUM) / LITER_PER_BARREL;
+  return value;
+};
+
+const uniqueNumbers = (values) => {
+  const seen = new Set();
+  const result = [];
+  for (const value of values || []) {
+    const num = toNumber(value);
+    if (num === null || seen.has(num)) continue;
+    seen.add(num);
+    result.push(num);
+  }
+  return result.length ? result : null;
+};
+
+const collectSuratJalan = (konfirmasis) => {
+  const seen = new Set();
+  const list = [];
+  for (const kp of konfirmasis || []) {
+    const sj = kp.suratJalan;
+    if (!sj?.id || seen.has(sj.id)) continue;
+    seen.add(sj.id);
+    list.push(sj);
+  }
+  return list;
+};
 
 module.exports = {
   getLaporanPetugasKeamanan: async (req, res) => {
@@ -266,6 +310,8 @@ module.exports = {
               include: [
                 { model: mitra, attributes: ["id", "nama"] },
                 { model: satuanVolume, attributes: ["id", "satuan"] },
+                { model: supir, attributes: ["id", "nama"] },
+                { model: transportir, attributes: ["id", "plat"] },
               ],
             },
           ],
@@ -285,19 +331,78 @@ module.exports = {
 
       const totalRows = await pengisianTanki.count({ where });
 
+      const baIds = [
+        ...new Set(rows.map((row) => row.BABongkarId).filter(Boolean)),
+      ];
+      const suhuByBa = new Map();
+      if (baIds.length) {
+        const ujiRows = await ujiLabK3S.findAll({
+          where: { BABongkarId: { [Op.in]: baIds } },
+          attributes: ["BABongkarId", "suhu"],
+        });
+        ujiRows.forEach((uji) => {
+          const suhu = toNumber(uji.suhu);
+          const baId = Number(uji.BABongkarId);
+          if (suhu === null || !baId) return;
+          const list = suhuByBa.get(baId) || [];
+          if (!list.includes(suhu)) list.push(suhu);
+          suhuByBa.set(baId, list);
+        });
+      }
+
       const result = rows.map((row) => {
         const plain = row.get({ plain: true });
         const konfirmasis = plain.konfirmasiPenerimaans || [];
+        const suratJalans = collectSuratJalan(konfirmasis);
         const mitraNama = uniqueJoin(
           konfirmasis.map((kp) => kp.suratJalan?.mitra?.nama),
         );
-        const nomorSJ = uniqueJoin(
-          konfirmasis.map((kp) => kp.suratJalan?.nomor),
-        );
+        const nomorSJ = uniqueJoin(suratJalans.map((sj) => sj.nomor));
         const volumeDiterima = konfirmasis.reduce((sum, kp) => {
           const val = toNumber(kp.volume);
           return val === null ? sum : sum + val;
         }, 0);
+
+        const gross = toNumber(plain.gross);
+        const net = toNumber(plain.net);
+        const satuan = plain.satuanVolume?.satuan || "barrel";
+        const mobilKeys = new Set();
+        suratJalans.forEach((sj) => {
+          const plat = String(sj.transportir?.plat || "").trim();
+          mobilKeys.add(plat || `sj-${sj.id}`);
+        });
+
+        const volumeItems = suratJalans
+          .map((sj) => ({
+            volume: toNumber(sj.volume),
+            satuan: sj.satuanVolume?.satuan || "barrel",
+          }))
+          .filter((item) => item.volume !== null);
+        let volumeSuratJalan = null;
+        let satuanSuratJalan = null;
+        if (volumeItems.length) {
+          const units = new Set(
+            volumeItems.map((item) => item.satuan.toLowerCase()),
+          );
+          if (units.size === 1) {
+            volumeSuratJalan = volumeItems.reduce(
+              (sum, item) => sum + item.volume,
+              0,
+            );
+            satuanSuratJalan = volumeItems[0].satuan;
+          } else {
+            volumeSuratJalan = roundVolume(
+              volumeItems.reduce(
+                (sum, item) =>
+                  sum + (convertVolumeToBarrel(item.volume, item.satuan) || 0),
+                0,
+              ),
+            );
+            satuanSuratJalan = "barrel";
+          }
+        }
+
+        const suhuList = suhuByBa.get(Number(plain.BABongkarId)) || null;
 
         return {
           id: plain.id,
@@ -305,12 +410,24 @@ module.exports = {
           nomorSurat: plain.nomorSurat,
           tanki: plain.tanki?.kode || null,
           flowMeter: toNumber(plain.flowMeter),
-          gross: toNumber(plain.gross),
-          net: toNumber(plain.net),
-          satuan: plain.satuanVolume?.satuan || "barrel",
+          gross,
+          net,
+          loss: gross !== null && net !== null ? gross - net : null,
+          netBarrel:
+            net === null ? null : roundVolume(convertVolumeToBarrel(net, satuan)),
+          api: uniqueNumbers(konfirmasis.map((kp) => kp.api)),
+          sg: uniqueNumbers(konfirmasis.map((kp) => kp.SG)),
+          suhu: suhuList,
+          bsnw: uniqueNumbers(konfirmasis.map((kp) => kp.BSNW)),
+          satuan,
           volumeKonfirmasi: volumeDiterima || null,
           nomorSuratJalan: nomorSJ,
           mitra: mitraNama,
+          plat: uniqueJoin(suratJalans.map((sj) => sj.transportir?.plat)),
+          supir: uniqueJoin(suratJalans.map((sj) => sj.supir?.nama)),
+          jumlahMobil: mobilKeys.size || null,
+          volumeSuratJalan,
+          satuanSuratJalan,
           pembuat: plain.userKPBPN?.nama || null,
           baBongkarId: plain.BABongkarId || null,
           catatan: plain.catatan || null,
