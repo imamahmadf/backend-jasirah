@@ -136,6 +136,50 @@ const roundVolumeNumber = (value, maxDecimals = 3) => {
   return Math.round((num + Number.EPSILON) * factor) / factor;
 };
 
+const isDimensiKosong = (value) => {
+  if (value === undefined || value === null || value === "") return true;
+  const num = Number(value);
+  return Number.isNaN(num) || num <= 0;
+};
+
+const simpanDimensiTransportirKosong = async (
+  transportirData,
+  panjangInput,
+  lebarInput,
+) => {
+  if (!transportirData) return;
+  const updateDimensi = {};
+  const panjangBaru = parseDecimalBody(panjangInput);
+  const lebarBaru = parseDecimalBody(lebarInput);
+  if (
+    isDimensiKosong(transportirData.panjang) &&
+    panjangBaru !== null &&
+    panjangBaru > 0
+  ) {
+    updateDimensi.panjang = roundVolumeNumber(panjangBaru, 3);
+  }
+  if (
+    isDimensiKosong(transportirData.lebar) &&
+    lebarBaru !== null &&
+    lebarBaru > 0
+  ) {
+    updateDimensi.lebar = roundVolumeNumber(lebarBaru, 3);
+  }
+  if (!Object.keys(updateDimensi).length) return;
+
+  const panjangAkhir = Number(
+    updateDimensi.panjang ?? transportirData.panjang,
+  );
+  const lebarAkhir = Number(updateDimensi.lebar ?? transportirData.lebar);
+  if (panjangAkhir > 0 && lebarAkhir > 0) {
+    updateDimensi.factorTank = roundVolumeNumber(
+      (panjangAkhir * lebarAkhir) / 1000,
+      3,
+    );
+  }
+  await transportirData.update(updateDimensi);
+};
+
 const calcVolumeDrum = (tinggiCm, panjangCm, lebarCm) => {
   const tinggi = parseDecimalBody(tinggiCm);
   const panjang = parseDecimalBody(panjangCm);
@@ -1250,6 +1294,8 @@ module.exports = {
       volumeAir,
       volumeAkhir,
       tinggiCairan,
+      panjangTransportir,
+      lebarTransportir,
       pegawaiId,
       catatan,
       api,
@@ -1391,15 +1437,24 @@ module.exports = {
       let satuanVolumeId =
         existing.satuanVolumeId ?? existing.suratJalan?.satuanVolumeId;
       if (isVolume) {
-        volumeDrum = calcVolumeDrum(
-          tinggiCairan,
-          existing.suratJalan?.transportir?.panjang,
-          existing.suratJalan?.transportir?.lebar,
+        await simpanDimensiTransportirKosong(
+          existing.suratJalan?.transportir,
+          panjangTransportir,
+          lebarTransportir,
         );
+        if (volumeValue !== null && volumeValue > 0) {
+          volumeDrum = volumeValue;
+        } else {
+          volumeDrum = calcVolumeDrum(
+            tinggiCairan,
+            existing.suratJalan?.transportir?.panjang,
+            existing.suratJalan?.transportir?.lebar,
+          );
+        }
         if (volumeDrum === null || volumeDrum <= 0) {
           return res.status(400).json({
             error:
-              "Panjang dan lebar transportir belum lengkap, volume drum tidak dapat dihitung",
+              "Volume wajib diisi. Lengkapi tinggi cairan beserta panjang dan lebar transportir, atau isi volume secara manual",
           });
         }
         const drumSatuan = await satuanVolume.findOne({
