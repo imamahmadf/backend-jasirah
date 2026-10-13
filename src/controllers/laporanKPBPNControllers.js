@@ -16,8 +16,15 @@ const {
   BAK3S,
   userKPBPN,
   icp,
+  produksiSumur,
+  produksiSumurK3S,
+  sumurMinyak,
 } = require("../models");
 const { ROLE_KPBPN, getKpbpnRoleIds } = require("../lib/auth");
+const {
+  muatRiwayatSumur,
+  mitraPadaTanggal,
+} = require("../lib/riwayatMitraSumur");
 
 const userAttrs = ["id", "nama", "namaPengguna"];
 
@@ -742,6 +749,150 @@ module.exports = {
         limit,
         totalRows,
         scoped: !scope.isAdmin && !scope.isKeuangan,
+      });
+    } catch (err) {
+      return handleError(res, err);
+    }
+  },
+
+  getLaporanProduksiSumur: async (req, res) => {
+    const { page, limit, offset } = paginateQuery(req);
+    const { startDate, endDate, search, sumber } = req.query;
+    const sumberFilter = ["suratJalan", "BAK3S"].includes(sumber) ? sumber : "";
+
+    try {
+      const scope = await resolveScope(req);
+      if (!scope.userId) {
+        return res.status(401).json({ error: "Pengguna tidak dikenali" });
+      }
+
+      if (!scope.isAdmin && !scope.mitraId) {
+        return jsonList(res, {
+          result: [],
+          page,
+          limit,
+          totalRows: 0,
+          scoped: true,
+        });
+      }
+
+      const where = {};
+      applyTanggalFilter(where, startDate, endDate);
+
+      const buildSumurInclude = () => ({
+        model: sumurMinyak,
+        attributes: ["id", "nama", "nomor", "mitraId"],
+        required: true,
+        include: [{ model: mitra, attributes: ["id", "nama"] }],
+      });
+
+      const [rowsSuratJalan, rowsK3S] = await Promise.all([
+        sumberFilter === "BAK3S"
+          ? []
+          : produksiSumur.findAll({
+              where,
+              include: [
+                buildSumurInclude(),
+                { model: satuanVolume, attributes: ["id", "satuan"] },
+                {
+                  model: suratJalan,
+                  attributes: ["id", "nomor", "tanggal", "mitraId"],
+                  include: [{ model: mitra, attributes: ["id", "nama"] }],
+                },
+              ],
+              order: [
+                ["tanggal", "DESC"],
+                ["id", "DESC"],
+              ],
+            }),
+        sumberFilter === "suratJalan"
+          ? []
+          : produksiSumurK3S.findAll({
+              where,
+              include: [
+                buildSumurInclude(),
+                { model: satuanVolume, attributes: ["id", "satuan"] },
+              ],
+              order: [
+                ["tanggal", "DESC"],
+                ["id", "DESC"],
+              ],
+            }),
+      ]);
+
+      const riwayatMap = await muatRiwayatSumur(
+        rowsK3S.map((row) => row.sumurMinyakId),
+      );
+
+      let combined = [
+        ...rowsSuratJalan.map((row) => {
+          const plain = row.get({ plain: true });
+          return {
+            id: `surat-jalan-${plain.id}`,
+            tanggal: plain.tanggal,
+            sumur: plain.sumurMinyak?.nama || null,
+            nomorSumur: plain.sumurMinyak?.nomor || null,
+            mitraId: plain.suratJalan?.mitraId || null,
+            mitra: plain.suratJalan?.mitra?.nama || null,
+            tipe: "Surat Jalan",
+            referensi: plain.suratJalan?.nomor || null,
+            produksi: toNumber(plain.produksi),
+            satuan: plain.satuanVolume?.satuan || "barrel",
+          };
+        }),
+        ...rowsK3S.map((row) => {
+          const plain = row.get({ plain: true });
+          const mitraHistoris = mitraPadaTanggal(
+            riwayatMap.get(plain.sumurMinyakId),
+            plain.tanggal,
+          );
+          return {
+            id: `k3s-${plain.id}`,
+            tanggal: plain.tanggal,
+            sumur: plain.sumurMinyak?.nama || null,
+            nomorSumur: plain.sumurMinyak?.nomor || null,
+            mitraId: mitraHistoris?.id || plain.sumurMinyak?.mitraId || null,
+            mitra:
+              mitraHistoris?.nama || plain.sumurMinyak?.mitra?.nama || null,
+            tipe: "BAK3S",
+            referensi: plain.BAK3SId ? `BAK3S #${plain.BAK3SId}` : null,
+            produksi: toNumber(plain.produksi),
+            satuan: plain.satuanVolume?.satuan || "barrel",
+          };
+        }),
+      ];
+
+      if (!scope.isAdmin) {
+        combined = combined.filter(
+          (item) => Number(item.mitraId || 0) === Number(scope.mitraId || 0),
+        );
+      }
+
+      if (search?.trim()) {
+        const term = String(search).trim().toLowerCase();
+        combined = combined.filter((item) =>
+          [item.sumur, item.nomorSumur, item.mitra, item.tipe, item.referensi]
+            .some((value) =>
+              String(value || "")
+                .toLowerCase()
+                .includes(term),
+            ),
+        );
+      }
+
+      combined.sort((a, b) => {
+        const aTime = new Date(a.tanggal || 0).getTime();
+        const bTime = new Date(b.tanggal || 0).getTime();
+        if (bTime !== aTime) return bTime - aTime;
+        return String(b.id).localeCompare(String(a.id));
+      });
+
+      return jsonList(res, {
+        result: combined.slice(offset, offset + limit),
+        page,
+        limit,
+        totalRows: combined.length,
+        scoped: scope.scoped,
       });
     } catch (err) {
       return handleError(res, err);

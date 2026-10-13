@@ -10,8 +10,13 @@ const {
   BAK3S,
   BABongkar,
   userKPBPN,
+  sequelize,
 } = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+const {
+  catatMitraAwal,
+  pindahMitraSumur,
+} = require("../lib/riwayatMitraSumur");
 const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
 const { buildFrontendPathUrl } = require("../lib/frontendBaseUrl");
 
@@ -454,28 +459,40 @@ module.exports = {
         foto = `/${filePath}/${filename}`;
       }
 
-      const result = await sumurMinyak.create({
-        nama,
-        mitraId: assignedMitraId,
-        foto,
-        nomor,
-        statusVerifikasi: statusVerifikasi || "belum",
-        tanggalVerifikasi: tanggalVerifikasi || null,
-        longitude: longitude ? parseFloat(longitude) : null,
-        latitude: latitude ? parseFloat(latitude) : null,
-        alamat,
-        produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
-        area: parseOptionalInt(area),
-        operasional: parseOptionalInt(operasional),
-        lingkungan: parseOptionalInt(lingkungan),
-        penyaluran: parseOptionalInt(penyaluran),
-        statusKepemilikan: parseOptionalInt(statusKepemilikan),
-        tingkatProduksi: parseOptionalInt(tingkatProduksi),
-        namaPemilikLahan: parseOptionalString(namaPemilikLahan),
-        namaPemilikSumur: parseOptionalString(namaPemilikSumur),
-        kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
-        kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
-      });
+      const transaction = await sequelize.transaction();
+      let result;
+      try {
+        result = await sumurMinyak.create(
+          {
+            nama,
+            mitraId: assignedMitraId,
+            foto,
+            nomor,
+            statusVerifikasi: statusVerifikasi || "belum",
+            tanggalVerifikasi: tanggalVerifikasi || null,
+            longitude: longitude ? parseFloat(longitude) : null,
+            latitude: latitude ? parseFloat(latitude) : null,
+            alamat,
+            produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
+            area: parseOptionalInt(area),
+            operasional: parseOptionalInt(operasional),
+            lingkungan: parseOptionalInt(lingkungan),
+            penyaluran: parseOptionalInt(penyaluran),
+            statusKepemilikan: parseOptionalInt(statusKepemilikan),
+            tingkatProduksi: parseOptionalInt(tingkatProduksi),
+            namaPemilikLahan: parseOptionalString(namaPemilikLahan),
+            namaPemilikSumur: parseOptionalString(namaPemilikSumur),
+            kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
+            kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
+          },
+          { transaction },
+        );
+        await catatMitraAwal(result.id, assignedMitraId, transaction);
+        await transaction.commit();
+      } catch (txErr) {
+        if (!transaction.finished) await transaction.rollback();
+        throw txErr;
+      }
 
       const io = req.app.get("socketio");
       await notifyDashboardChange(io, {
@@ -542,31 +559,44 @@ module.exports = {
         foto = `/${filePath}/${req.file.filename}`;
       }
 
-      await sumurMinyak.update(
-        {
-          nama,
-          mitraId: assignedMitraId,
-          foto,
-          nomor,
-          statusVerifikasi,
-          tanggalVerifikasi: tanggalVerifikasi || null,
-          longitude: longitude ? parseFloat(longitude) : null,
-          latitude: latitude ? parseFloat(latitude) : null,
-          alamat,
-          produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
-          area: parseOptionalInt(area),
-          operasional: parseOptionalInt(operasional),
-          lingkungan: parseOptionalInt(lingkungan),
-          penyaluran: parseOptionalInt(penyaluran),
-          statusKepemilikan: parseOptionalInt(statusKepemilikan),
-          tingkatProduksi: parseOptionalInt(tingkatProduksi),
-          namaPemilikLahan: parseOptionalString(namaPemilikLahan),
-          namaPemilikSumur: parseOptionalString(namaPemilikSumur),
-          kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
-          kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
-        },
-        { where: { id } },
-      );
+      const transaction = await sequelize.transaction();
+      try {
+        await sumurMinyak.update(
+          {
+            nama,
+            mitraId: assignedMitraId,
+            foto,
+            nomor,
+            statusVerifikasi,
+            tanggalVerifikasi: tanggalVerifikasi || null,
+            longitude: longitude ? parseFloat(longitude) : null,
+            latitude: latitude ? parseFloat(latitude) : null,
+            alamat,
+            produksiHarian: produksiHarian ? parseFloat(produksiHarian) : null,
+            area: parseOptionalInt(area),
+            operasional: parseOptionalInt(operasional),
+            lingkungan: parseOptionalInt(lingkungan),
+            penyaluran: parseOptionalInt(penyaluran),
+            statusKepemilikan: parseOptionalInt(statusKepemilikan),
+            tingkatProduksi: parseOptionalInt(tingkatProduksi),
+            namaPemilikLahan: parseOptionalString(namaPemilikLahan),
+            namaPemilikSumur: parseOptionalString(namaPemilikSumur),
+            kontakPemilikLahan: parseOptionalString(kontakPemilikLahan),
+            kontakPemilikSumur: parseOptionalString(kontakPemilikSumur),
+          },
+          { where: { id }, transaction },
+        );
+        await pindahMitraSumur({
+          sumurMinyakId: id,
+          mitraIdLama: existing.mitraId,
+          mitraIdBaru: assignedMitraId,
+          transaction,
+        });
+        await transaction.commit();
+      } catch (txErr) {
+        if (!transaction.finished) await transaction.rollback();
+        throw txErr;
+      }
 
       const result = await sumurMinyak.findByPk(id, {
         include: [{ model: mitra }],

@@ -27,6 +27,10 @@ const {
 
 const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
+const {
+  sumurIdsMilikMitra,
+  muatSumurDenganMitraHistoris,
+} = require("../lib/riwayatMitraSumur");
 const { isPetugasKeamananOnly } = require("../lib/auth");
 
 const rejectPetugasKeamanan = (req, res, message) => {
@@ -1648,14 +1652,13 @@ module.exports = {
       }
 
       const [
-        resultSumurMinyak,
+        sumurHistorisIds,
         resultProduksi,
         resultSatuanVolume,
         produksiHariIni,
       ] = await Promise.all([
-        sumurMinyak.findAll({
-          where: { mitraId: suratJalanData.mitraId },
-          order: [["nama", "ASC"]],
+        sumurIdsMilikMitra(suratJalanData.mitraId, suratJalanData.tanggal, {
+          termasukHariMulai: true,
         }),
         produksiSumur.findAll({
           where: { suratJalanId },
@@ -1687,6 +1690,17 @@ module.exports = {
       const sumurTerisiHariIni = [
         ...new Set(produksiHariIni.map((row) => row.sumurMinyakId)),
       ];
+      const sumurIds = [
+        ...new Set([
+          ...sumurHistorisIds,
+          ...resultProduksi.map((row) => row.sumurMinyakId),
+        ]),
+      ];
+      const resultSumurMinyak = await muatSumurDenganMitraHistoris(
+        sumurIds,
+        suratJalanData.tanggal,
+        { termasukHariMulai: true },
+      );
 
       return res.status(200).json({
         success: true,
@@ -1760,14 +1774,21 @@ module.exports = {
       }
 
       const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
-      const validSumur = await sumurMinyak.findAll({
-        where: {
-          id: sumurIds,
-          mitraId: suratJalanData.mitraId,
-        },
-      });
+      const [sumurMilikMitra, produksiTersimpan] = await Promise.all([
+        sumurIdsMilikMitra(suratJalanData.mitraId, suratJalanData.tanggal, {
+          termasukHariMulai: true,
+        }),
+        produksiSumur.findAll({
+          attributes: ["sumurMinyakId"],
+          where: { suratJalanId: parsedSuratJalanId },
+        }),
+      ]);
+      const allowedSumurIds = new Set([
+        ...sumurMilikMitra,
+        ...produksiTersimpan.map((row) => row.sumurMinyakId),
+      ]);
 
-      if (validSumur.length !== sumurIds.length) {
+      if (sumurIds.some((sumurId) => !allowedSumurIds.has(sumurId))) {
         return res.status(400).json({
           error: "Terdapat sumur minyak yang tidak valid untuk mitra ini",
         });

@@ -41,6 +41,15 @@ const allowKeuangan = [
   ]),
 ];
 
+const allowProduksiSumur = [
+  authenticateUser,
+  authorizeKpbpnRoles([
+    ROLE_KPBPN.SUPER_ADMIN,
+    ROLE_KPBPN.ADMIN,
+    ROLE_KPBPN.MITRA,
+  ]),
+];
+
 routers.get(
   "/petugas-keamanan",
   ...allowPetugas,
@@ -66,6 +75,11 @@ routers.get(
   "/keuangan",
   ...allowKeuangan,
   laporanKPBPNControllers.getLaporanKeuangan,
+);
+routers.get(
+  "/produksi-sumur",
+  ...allowProduksiSumur,
+  laporanKPBPNControllers.getLaporanProduksiSumur,
 );
 
 module.exports = routers;

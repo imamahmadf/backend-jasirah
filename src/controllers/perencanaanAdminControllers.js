@@ -318,7 +318,7 @@ module.exports = {
           nama,
           kegiatanId,
         },
-        { where: { id } }
+        { where: { id } },
       );
       return res.status(200).json({ result });
     } catch (err) {
@@ -337,7 +337,7 @@ module.exports = {
           nama,
           programId,
         },
-        { where: { id } }
+        { where: { id } },
       );
       return res.status(200).json({ result });
     } catch (err) {
@@ -356,7 +356,7 @@ module.exports = {
           kode,
           nama,
         },
-        { where: { id } }
+        { where: { id } },
       );
       return res.status(200).json({ result });
     } catch (err) {
@@ -687,7 +687,7 @@ module.exports = {
             anggaranDirealisasikan: data.direalisasikan,
             persentaseSerapan: parseFloat(persentase),
           };
-        }
+        },
       );
 
       // 3. Statistik per Unit Kerja (jika tidak ada filter indukUnitKerjaId)
@@ -800,7 +800,7 @@ module.exports = {
               anggaranDirealisasikan: unitAnggaranDirealisasikan,
               persentaseSerapanAnggaran: parseFloat(unitPersentaseSerapan),
             };
-          })
+          }),
         );
       }
 

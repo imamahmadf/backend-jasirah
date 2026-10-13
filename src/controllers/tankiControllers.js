@@ -25,6 +25,12 @@ const {
 } = require("../models");
 
 const { Op } = require("sequelize");
+const {
+  sumurIdsUntukPeriodeMitra,
+  muatRiwayatSumur,
+  tempelMitraDariEntri,
+  tempelMitraHistoris,
+} = require("../lib/riwayatMitraSumur");
 const jwt = require("jsonwebtoken");
 const PizZip = require("pizzip");
 const fs = require("fs");
@@ -96,6 +102,28 @@ const parseKonfirmasiIds = (ids) => [
       .filter((id) => Number.isInteger(id) && id > 0),
   ),
 ];
+
+const formatNilaiKonfirmasi = (list, field) => {
+  const seen = new Set();
+  const values = [];
+  for (const item of list || []) {
+    const raw = item?.[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const key = String(raw);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const angka = Number(raw);
+    values.push(
+      Number.isNaN(angka)
+        ? String(raw)
+        : new Intl.NumberFormat("id-ID", {
+            maximumFractionDigits: 3,
+            minimumFractionDigits: 0,
+          }).format(angka),
+    );
+  }
+  return values.length ? values.join(", ") : null;
+};
 
 const httpError = (statusCode, message) => {
   const error = new Error(message);
@@ -486,6 +514,26 @@ const bak3sDetailPengisianInclude = [
   },
 ];
 
+const entriMitraDariBA = (ba) => {
+  const entri = [];
+  const seen = new Set();
+
+  for (const pt of ba?.pengisianTankis || []) {
+    for (const kp of pt.konfirmasiPenerimaans || []) {
+      const sj = kp.suratJalan;
+      const mitraId = sj?.mitra?.id || sj?.mitraId;
+      if (!mitraId) continue;
+      const tanggal = sj?.tanggal || pt.tanggal || ba?.tanggal || null;
+      const key = `${mitraId}|${tanggal || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entri.push({ mitraId, tanggal });
+    }
+  }
+
+  return entri;
+};
+
 const collectRelatedMitraFromBA = (ba) => {
   const mitraMap = new Map();
   let defaultSatuanVolumeId = null;
@@ -753,6 +801,103 @@ const sendDocxDownload = (res, buffer, fileName) => {
   fs.unlinkSync(outputPath);
 };
 
+const escapeLike = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/[\\%_]/g, "\\$&");
+
+const parseFilterDate = (value, endOfDay) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (endOfDay) return new Date(year, month - 1, day, 23, 59, 59, 999);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
+
+const buildPengisianTankiWhere = async (query) => {
+  const whereCondition = {};
+  const start = parseFilterDate(query.startDate, false);
+  const end = parseFilterDate(query.endDate, true);
+  const tangkiId = parseInt(query.tangkiId, 10);
+  const nomorSurat = escapeLike(query.nomorSurat);
+  const statusBA = String(query.statusBA || "").trim();
+  const mitraKeyword = escapeLike(query.mitra);
+  const platKeyword = escapeLike(query.plat);
+
+  if (start || end) {
+    whereCondition.tanggal = {};
+    if (start) whereCondition.tanggal[Op.gte] = start;
+    if (end) whereCondition.tanggal[Op.lte] = end;
+  }
+
+  if (Number.isInteger(tangkiId) && tangkiId > 0) {
+    whereCondition.tangkiId = tangkiId;
+  }
+
+  if (nomorSurat) {
+    whereCondition.nomorSurat = { [Op.like]: `%${nomorSurat}%` };
+  }
+
+  if (statusBA === "sudah") {
+    whereCondition.BABongkarId = { [Op.ne]: null };
+  } else if (statusBA === "belum") {
+    whereCondition.BABongkarId = { [Op.is]: null };
+  }
+
+  if (!mitraKeyword && !platKeyword) {
+    return whereCondition;
+  }
+
+  const matched = await pengisianTanki.findAll({
+    attributes: ["id"],
+    where: whereCondition,
+    include: [
+      {
+        model: konfirmasiPenerimaan,
+        attributes: [],
+        through: { attributes: [] },
+        required: true,
+        include: [
+          {
+            model: suratJalan,
+            attributes: [],
+            required: true,
+            include: [
+              ...(mitraKeyword
+                ? [
+                    {
+                      model: mitra,
+                      attributes: [],
+                      required: true,
+                      where: { nama: { [Op.like]: `%${mitraKeyword}%` } },
+                    },
+                  ]
+                : []),
+              ...(platKeyword
+                ? [
+                    {
+                      model: transportir,
+                      attributes: [],
+                      required: true,
+                      where: { plat: { [Op.like]: `%${platKeyword}%` } },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+      },
+    ],
+    raw: true,
+  });
+
+  const ids = [...new Set(matched.map((item) => item.id))];
+  whereCondition.id = ids.length ? { [Op.in]: ids } : -1;
+  return whereCondition;
+};
+
 module.exports = {
   getAllBABongkar: async (req, res) => {
     const page = parseInt(req.query.page) || 0;
@@ -831,8 +976,8 @@ module.exports = {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 50;
     const offset = limit * page;
-    const whereCondition = {};
     try {
+      const whereCondition = await buildPengisianTankiWhere(req.query);
       const result = await pengisianTanki.findAll({
         where: whereCondition,
         limit,
@@ -893,7 +1038,6 @@ module.exports = {
       penampilanVisual,
       warna,
       kandunganAir,
-      BSW,
       catatan,
       saksi,
       satuanVolumeId,
@@ -946,7 +1090,6 @@ module.exports = {
           penampilanVisual,
           warna,
           kandunganAir,
-          BSW,
           catatan,
           saksi,
           satuanVolumeId: satuanVolumeId ? parseInt(satuanVolumeId, 10) : null,
@@ -1391,7 +1534,21 @@ module.exports = {
         return res.status(404).json({ error: "BAK3S tidak ditemukan" });
       }
 
-      return res.status(200).json({ success: true, result });
+      const plain = result.get({ plain: true });
+      const produksiRows = plain.produksiSumurK3S || [];
+      const riwayatMap = await muatRiwayatSumur(
+        produksiRows.map((row) => row.sumurMinyakId),
+      );
+      plain.produksiSumurK3S = produksiRows.map((row) => ({
+        ...row,
+        sumurMinyak: tempelMitraHistoris(
+          row.sumurMinyak,
+          row.tanggal,
+          riwayatMap,
+        ),
+      }));
+
+      return res.status(200).json({ success: true, result: plain });
     } catch (err) {
       console.log(err);
       return res.status(500).json({ error: err.message });
@@ -1411,17 +1568,12 @@ module.exports = {
       }
 
       const related = collectRelatedMitraFromBA(bak3sData.BABongkar);
+      const periodeMitra = entriMitraDariBA(bak3sData.BABongkar);
       const suratJalanIds = collectSuratJalanIdsFromBA(bak3sData.BABongkar);
 
-      const [resultSumurMinyak, resultProduksi, resultSatuanVolume, resultProduksiSumber] =
+      const [sumurHistorisIds, resultProduksi, resultSatuanVolume, resultProduksiSumber] =
         await Promise.all([
-          related.relatedMitraIds.length
-            ? sumurMinyak.findAll({
-                where: { mitraId: related.relatedMitraIds },
-                include: [{ model: mitra, attributes: ["id", "nama"] }],
-                order: [["nama", "ASC"]],
-              })
-            : [],
+          sumurIdsUntukPeriodeMitra(periodeMitra, { termasukHariMulai: true }),
           produksiSumurK3S.findAll({
             where: { BAK3SId },
             include: [
@@ -1452,6 +1604,25 @@ module.exports = {
               })
             : [],
         ]);
+
+      const sumurIds = [
+        ...new Set([
+          ...sumurHistorisIds,
+          ...resultProduksi.map((row) => row.sumurMinyakId),
+          ...resultProduksiSumber.map((row) => row.sumurMinyakId),
+        ]),
+      ];
+      const riwayatMap = await muatRiwayatSumur(sumurIds);
+      const sumurRows = sumurIds.length
+        ? await sumurMinyak.findAll({
+            where: { id: sumurIds },
+            include: [{ model: mitra, attributes: ["id", "nama"] }],
+            order: [["nama", "ASC"]],
+          })
+        : [];
+      const resultSumurMinyak = sumurRows.map((row) =>
+        tempelMitraDariEntri(row.get({ plain: true }), periodeMitra, riwayatMap),
+      );
 
       const savedSatuanVolumeId = resultProduksi.find(
         (item) => item.satuanVolumeId,
@@ -1552,14 +1723,21 @@ module.exports = {
       }
 
       const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
-      const validSumur = await sumurMinyak.findAll({
-        where: {
-          id: sumurIds,
-          mitraId: related.relatedMitraIds,
-        },
-      });
+      const [sumurMilikMitra, produksiTersimpan] = await Promise.all([
+        sumurIdsUntukPeriodeMitra(entriMitraDariBA(bak3sData.BABongkar), {
+          termasukHariMulai: true,
+        }),
+        produksiSumurK3S.findAll({
+          attributes: ["sumurMinyakId"],
+          where: { BAK3SId: parsedBAK3SId },
+        }),
+      ]);
+      const allowedSumurIds = new Set([
+        ...sumurMilikMitra,
+        ...produksiTersimpan.map((row) => row.sumurMinyakId),
+      ]);
 
-      if (validSumur.length !== sumurIds.length) {
+      if (sumurIds.some((sumurId) => !allowedSumurIds.has(sumurId))) {
         return res.status(400).json({
           error: "Terdapat sumur minyak yang tidak valid untuk mitra terkait",
         });
@@ -2104,7 +2282,12 @@ module.exports = {
         penampilan: dataPengisian.penampilanVisual ?? "-",
         warna: dataPengisian.warna ?? "-",
         air: dataPengisian.kandunganAir ?? "-",
-        BSW: dataPengisian.BSW ?? "-",
+        BSW:
+          formatNilaiKonfirmasi(konfirmasiList, "BSNW") ??
+          dataPengisian.BSW ??
+          "-",
+        GS: formatNilaiKonfirmasi(konfirmasiList, "SG") ?? "-",
+        API: formatNilaiKonfirmasi(konfirmasiList, "api") ?? "-",
         gross: dataPengisian.gross ?? 0,
         net: dataPengisian.net ?? 0,
         loss: grossNum - netNum,
@@ -2157,7 +2340,6 @@ module.exports = {
       penampilanVisual,
       warna,
       kandunganAir,
-      BSW,
       catatan,
       saksi,
       satuanVolumeId,
@@ -2191,7 +2373,6 @@ module.exports = {
           penampilanVisual,
           warna,
           kandunganAir,
-          BSW,
           catatan,
           saksi,
           nomorSurat: nomorSuratValue,

@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.mitra, { foreignKey: "mitraId" });
       this.hasMany(models.produksiSumur, { foreignKey: "sumurMinyakId" });
       this.hasMany(models.produksiSumurK3S, { foreignKey: "sumurMinyakId" });
+      this.hasMany(models.riwayatMitraSumur, { foreignKey: "sumurMinyakId" });
     }
   }
   sumurMinyak.init(
