@@ -2424,22 +2424,6 @@ module.exports = {
         });
       }
 
-      if (existing.BABongkarId) {
-        await transaction.rollback();
-        return res.status(400).json({
-          message:
-            "Pengisian tanki sudah memiliki BA Bongkar dan tidak dapat dihapus",
-        });
-      }
-
-      if (existing.nomorSurat) {
-        await transaction.rollback();
-        return res.status(400).json({
-          message:
-            "Pengisian tanki sudah memiliki nomor surat BAST dan tidak dapat dihapus",
-        });
-      }
-
       await existing.setKonfirmasiPenerimaans([], { transaction });
       await pengisianTanki.destroy({ where: { id }, transaction });
       await transaction.commit();
