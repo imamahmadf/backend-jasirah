@@ -1107,6 +1107,8 @@ module.exports = {
           { model: mitra, attributes: ["id", "nama"] },
           { model: satuanVolume, attributes: ["id", "satuan"] },
           { model: statusSuratJalan, attributes: ["id", "status"] },
+          { model: transportir, attributes: ["id", "plat"] },
+          { model: supir, attributes: ["id", "nama"] },
         ],
       },
     ];
