@@ -28,6 +28,45 @@ const parseDecimalInput = (value) => {
   return Number.isNaN(num) ? null : num;
 };
 
+const normalizeJam = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return [
+      String(value.getHours()).padStart(2, "0"),
+      String(value.getMinutes()).padStart(2, "0"),
+      String(value.getSeconds()).padStart(2, "0"),
+    ].join(":");
+  }
+  const match = String(value)
+    .trim()
+    .match(/(?:T|\s)?(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = Number(match[3] || 0);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return [
+    String(hour).padStart(2, "0"),
+    String(minute).padStart(2, "0"),
+    String(second).padStart(2, "0"),
+  ].join(":");
+};
+
+const isPengisianSebelumOpname = (pengisianJam, opnameJam) => {
+  const pengisian = normalizeJam(pengisianJam);
+  const opname = normalizeJam(opnameJam);
+  if (!pengisian || !opname) return false;
+  return pengisian < opname;
+};
+
+const sumMasukUntukVolumeAkhir = (detailMasuk, opnameJam) =>
+  roundBarrelVolume(
+    (detailMasuk || []).reduce((sum, pengisian) => {
+      if (isPengisianSebelumOpname(pengisian.jam, opnameJam)) return sum;
+      return sum + (Number(pengisian.grossBarrel) || 0);
+    }, 0),
+  );
+
 const toNumberOrNull = (value) => {
   if (value === undefined || value === null || value === "") return null;
   const num = Number(value);
@@ -429,6 +468,7 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
       kandunganAirBarrel,
       satuan: satuanAsli,
       tanggal: item.tanggal || item.createdAt,
+      jam: normalizeJam(item.jam),
       penampilanVisual: item.penampilanVisual || null,
       warna: item.warna || null,
       kandunganAir: item.kandunganAir ?? null,
@@ -576,6 +616,7 @@ const applyCarriedBsnw = (mutasi, dateKey, tangkiId, lots) => {
 const serializeStockOpname = (item, mutasi = {}, bsnwLots = []) => {
   const volumes = buildVolumeFields(item);
   const masuk = roundBarrelVolume(mutasi.masuk || 0);
+  const masukUntukVolumeAkhir = sumMasukUntukVolumeAkhir(mutasi.detailMasuk, item.jam);
   const keluar = roundBarrelVolume(mutasi.keluar || 0);
   const detailMasuk = mutasi.detailMasuk || [];
   const detailKeluar = mutasi.detailKeluar || [];
@@ -590,6 +631,7 @@ const serializeStockOpname = (item, mutasi = {}, bsnwLots = []) => {
   return {
     id: item.id,
     tanggal: toDateKey(item.tanggal) || item.tanggal,
+    jam: item.jam || null,
     tankiId: item.tankiId,
     kode: item.tanki?.kode || "-",
     stasiunPengumpulMinyak: item.tanki?.stasiunPengumpulMinyak?.nama || null,
@@ -604,6 +646,7 @@ const serializeStockOpname = (item, mutasi = {}, bsnwLots = []) => {
     volumeBersih: volumes.volumeBersih,
     satuan: SATUAN,
     masuk,
+    masukUntukVolumeAkhir,
     keluar,
     BSNW: pickFirstBsnw(detailBSNW, detailKeluar, detailMasuk),
     BSNWGabunganMasuk: carriedBsnw.BSNWGabunganMasuk,
@@ -645,6 +688,7 @@ const findExistingOnSameDay = async ({ tankiId, tanggal, excludeId }) => {
 const parsePayload = (body) => {
   const tankiId = parseInt(body.tankiId ?? body.tangkiId, 10);
   const tanggal = body.tanggal;
+  const jam = normalizeJam(body.jam);
   const tinggiMinyak = parseDecimalInput(body.tinggiMinyak);
   const tinggiAir = parseDecimalInput(body.tinggiAir);
   const suhu = parseDecimalInput(body.suhu);
@@ -654,6 +698,13 @@ const parsePayload = (body) => {
   }
   if (!tanggal || !toDateKey(tanggal)) {
     return { error: "Tanggal wajib diisi" };
+  }
+  if (!jam) {
+    return {
+      error: body.jam
+        ? "Format jam pengukuran tidak valid"
+        : "Jam pengukuran wajib diisi",
+    };
   }
   if (tinggiMinyak === null || tinggiMinyak < 0) {
     return { error: "Tinggi minyak wajib diisi dan tidak boleh negatif" };
@@ -668,6 +719,7 @@ const parsePayload = (body) => {
   return {
     tankiId,
     tanggal: toDateKey(tanggal),
+    jam,
     tinggiMinyak,
     tinggiAir,
     suhu,

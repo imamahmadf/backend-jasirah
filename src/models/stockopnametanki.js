@@ -16,6 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       tinggiMinyak: DataTypes.DECIMAL(10, 3),
       tinggiAir: DataTypes.DECIMAL(10, 3),
       tanggal: DataTypes.DATE,
+      jam: DataTypes.TIME,
       tankiId: DataTypes.INTEGER,
       suhu: DataTypes.DECIMAL(10, 3),
     },

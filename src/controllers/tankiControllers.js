@@ -37,6 +37,35 @@ const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
 const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
+
+const normalizeJam = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const match = String(value)
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const second = Number(match[3] || 0);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return [
+    String(hour).padStart(2, "0"),
+    String(minute).padStart(2, "0"),
+    String(second).padStart(2, "0"),
+  ].join(":");
+};
+
+const formatJamDokumen = (jam) => {
+  const normalized = normalizeJam(jam);
+  if (!normalized) return null;
+  const [hour, minute] = normalized.split(":");
+  const date = new Date(2000, 0, 1, Number(hour), Number(minute), 0);
+  return date.toLocaleTimeString("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
 
 const resolveUserKPBPNId = (req) => {
@@ -1042,7 +1071,12 @@ module.exports = {
       saksi,
       satuanVolumeId,
       ids,
+      jam: jamInput,
     } = req.body;
+    const jam = normalizeJam(jamInput);
+    if (jamInput && !jam) {
+      return res.status(400).json({ message: "Format jam tidak valid" });
+    }
     const userKPBPNId = resolveUserKPBPNId(req);
     const konfirmasiIds = parseKonfirmasiIds(ids);
     if (!konfirmasiIds.length) {
@@ -1084,6 +1118,7 @@ module.exports = {
         {
           tangkiId,
           tanggal,
+          jam,
           flowMeter,
           gross,
           net,
@@ -2274,10 +2309,12 @@ module.exports = {
       doc.render({
         nomor: nomorBAST,
         tanggal: formatTanggal(tanggalSumber),
-        jam: tanggalObj.toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+        jam:
+          formatJamDokumen(dataPengisian.jam) ||
+          tanggalObj.toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
         beratJenis: dataPengisian.flowMeter ?? "-",
         penampilan: dataPengisian.penampilanVisual ?? "-",
         warna: dataPengisian.warna ?? "-",
@@ -2345,7 +2382,13 @@ module.exports = {
       satuanVolumeId,
       nomorSurat,
       ids,
+      jam: jamInput,
     } = req.body;
+    const jamProvided = Object.prototype.hasOwnProperty.call(req.body, "jam");
+    const jam = jamProvided ? normalizeJam(jamInput) : undefined;
+    if (jamProvided && jamInput && !jam) {
+      return res.status(400).json({ message: "Format jam tidak valid" });
+    }
     const transaction = await sequelize.transaction();
 
     try {
@@ -2367,6 +2410,7 @@ module.exports = {
         {
           tangkiId,
           tanggal,
+          ...(jamProvided ? { jam } : {}),
           flowMeter,
           gross,
           net,
