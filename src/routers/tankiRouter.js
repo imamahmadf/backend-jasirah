@@ -67,6 +67,7 @@ routers.post("/post", tankiControllers.postPengisianTanki);
 routers.post("/edit/:id", tankiControllers.editPengisianTanki);
 routers.post("/delete/:id", tankiControllers.deletePengisianTanki);
 routers.post("/post/ba-bongkar", tankiControllers.postBABongkar);
+routers.post("/edit/ba-bongkar/:id", tankiControllers.editBABongkar);
 routers.post("/cetak/ba-bongkar", tankiControllers.cetakBABongkar);
 routers.post("/cetak/bast", tankiControllers.cetakBAST);
 routers.get("/get/stok-opname", tankiControllers.getStokOpname);

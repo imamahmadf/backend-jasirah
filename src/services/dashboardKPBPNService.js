@@ -214,7 +214,7 @@ const getPenerimaanPerBulan = async () => {
 
 const getProduksiBak3sPerBulan = async () => {
   const rows = await BAK3S.findAll({
-    attributes: ["produksi", "createdAt"],
+    attributes: ["produksi", "tanggal", "createdAt"],
     include: [{ model: BABongkar, attributes: ["tanggal"] }],
     raw: true,
     nest: true,
@@ -223,7 +223,7 @@ const getProduksiBak3sPerBulan = async () => {
   const byMonth = new Map();
   rows.forEach((row) => {
     const key = toMonthKeyFromValue(
-      row.BABongkar?.tanggal || row.createdAt,
+      row.tanggal || row.BABongkar?.tanggal || row.createdAt,
     );
     if (!key) return;
     const produksi = toNumber(row.produksi) || 0;

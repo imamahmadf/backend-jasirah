@@ -775,9 +775,8 @@ module.exports = {
         return res.status(401).json({ error: "Pengguna tidak dikenali" });
       }
 
-      const baWhere = {};
-      applyTanggalFilter(baWhere, startDate, endDate);
       const bakWhere = {};
+      applyTanggalFilter(bakWhere, startDate, endDate);
       if (!scope.isAdmin && !scope.isKeuangan) {
         bakWhere.userKPBPNId = scope.userId;
       }
@@ -788,7 +787,6 @@ module.exports = {
           model: BABongkar,
           attributes: ["id", "tanggal"],
           required: true,
-          where: Object.keys(baWhere).length ? baWhere : undefined,
         },
       ];
 
@@ -798,7 +796,7 @@ module.exports = {
         limit,
         offset,
         order: [
-          [BABongkar, "tanggal", "DESC"],
+          ["tanggal", "DESC"],
           ["id", "DESC"],
         ],
       });
@@ -820,7 +818,7 @@ module.exports = {
 
       let result = rows.map((row) => {
         const plain = row.get({ plain: true });
-        const tanggal = plain.BABongkar?.tanggal || null;
+        const tanggal = plain.tanggal || plain.BABongkar?.tanggal || null;
         const bulanTarif = previousMonthKey(tanggal);
         const icpRow = icpByMonth[bulanTarif] || null;
         const hargaIcp = toNumber(icpRow?.harga);

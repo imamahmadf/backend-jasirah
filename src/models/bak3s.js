@@ -14,6 +14,7 @@ module.exports = (sequelize, DataTypes) => {
   BAK3S.init(
     {
       BABongkarId: DataTypes.INTEGER,
+      tanggal: DataTypes.DATE,
       dokumen: DataTypes.STRING,
       api: DataTypes.DECIMAL(10, 3),
       BSNW: DataTypes.DECIMAL(10, 3),

@@ -87,7 +87,7 @@ const mapProduksiK3S = (row) => {
     sumber: "BAK3S",
     sumberLabel: "BAK3S",
     referensi: data.BAK3SId ? `BAK3S #${data.BAK3SId}` : "-",
-    tanggalReferensi: bak3s?.BABongkar?.tanggal || null,
+    tanggalReferensi: bak3s?.tanggal || bak3s?.BABongkar?.tanggal || null,
     volumeReferensi: bak3s?.produksi ?? null,
     satuanReferensi: "Barrel",
   };

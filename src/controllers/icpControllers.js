@@ -243,12 +243,12 @@ module.exports = {
     const offset = limit * page;
     const bulan = normalizeBulan(req.query.bulan);
 
-    const baWhere = {};
+    const bakWhere = {};
     if (bulan) {
       const start = new Date(`${bulan.slice(0, 7)}-01T00:00:00`);
       const end = new Date(start);
       end.setMonth(end.getMonth() + 1);
-      baWhere.tanggal = { [Op.gte]: start, [Op.lt]: end };
+      bakWhere.tanggal = { [Op.gte]: start, [Op.lt]: end };
     }
 
     const include = [
@@ -256,22 +256,23 @@ module.exports = {
         model: BABongkar,
         attributes: ["id", "tanggal"],
         required: true,
-        where: Object.keys(baWhere).length ? baWhere : undefined,
       },
     ];
 
     try {
       const resultRows = await BAK3S.findAll({
+        where: bakWhere,
         include,
         limit,
         offset,
         order: [
-          [BABongkar, "tanggal", "DESC"],
+          ["tanggal", "DESC"],
           ["id", "DESC"],
         ],
       });
 
       const totalRows = await BAK3S.count({
+        where: bakWhere,
         include,
         distinct: true,
       });
@@ -287,7 +288,7 @@ module.exports = {
 
       const result = resultRows.map((row) => {
         const plain = row.get({ plain: true });
-        const tanggal = plain.BABongkar?.tanggal || null;
+        const tanggal = plain.tanggal || plain.BABongkar?.tanggal || null;
         const bulanTarif = previousMonthKey(tanggal);
         const icpRow = icpByMonth[bulanTarif] || null;
         const hargaIcp = toNumber(icpRow?.harga);

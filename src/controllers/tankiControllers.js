@@ -264,19 +264,38 @@ const deletePublicFile = (relativePath) => {
   }
 };
 
+const parseBak3sTanggal = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+  const text = String(value).trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
 const parseBak3sPayload = (body) => {
   const api = parseDecimalInput(body.api);
   const BSNW = parseDecimalInput(body.BSNW);
   const produksi = parseDecimalInput(body.produksi);
   const sg = parseDecimalInput(body.sg);
+  const tanggal = parseBak3sTanggal(body.tanggal);
 
-  if (api === null || BSNW === null || produksi === null || sg === null) {
+  if (
+    !tanggal ||
+    api === null ||
+    BSNW === null ||
+    produksi === null ||
+    sg === null
+  ) {
     return {
-      error: "API, BSNW, produksi, dan SG wajib diisi",
+      error: "Tanggal, API, BSNW, produksi, dan SG wajib diisi",
     };
   }
 
-  return { api, BSNW, produksi, sg };
+  return { tanggal, api, BSNW, produksi, sg };
 };
 
 const getLatestUjiLabForTanki = async (tangkiId, transaction) => {
@@ -779,6 +798,86 @@ const parseTankiBAPayload = (body) => {
       ukuranAir,
     },
   ];
+};
+
+const resolveBABongkarGroups = (tankiGroups, pengisianList) => {
+  const pengisianById = new Map(
+    pengisianList.map((item) => [item.id, item]),
+  );
+  const resolvedGroups = [];
+
+  for (const group of tankiGroups) {
+    const items = group.ids.map((id) => pengisianById.get(id)).filter(Boolean);
+    const tangkiIds = [
+      ...new Set(
+        items
+          .map((item) => item.tangkiId ?? item.tanki?.id)
+          .filter(Boolean),
+      ),
+    ];
+
+    if (group.tangkiId) {
+      const mismatch = items.find(
+        (item) => (item.tangkiId ?? item.tanki?.id) !== group.tangkiId,
+      );
+      if (mismatch) {
+        throw new Error(
+          "Pengisian tanki tidak sesuai dengan tanki yang dipilih",
+        );
+      }
+    }
+
+    if (tangkiIds.length !== 1 && !group.tangkiId) {
+      for (const tangkiId of tangkiIds) {
+        const groupItems = items.filter(
+          (item) => (item.tangkiId ?? item.tanki?.id) === tangkiId,
+        );
+        resolvedGroups.push({
+          tangkiId,
+          ids: groupItems.map((item) => item.id),
+          ukuranCairan: group.ukuranCairan,
+          ukuranAir: group.ukuranAir,
+        });
+      }
+    } else {
+      resolvedGroups.push({
+        tangkiId: group.tangkiId || tangkiIds[0],
+        ids: group.ids,
+        ukuranCairan: group.ukuranCairan,
+        ukuranAir: group.ukuranAir,
+      });
+    }
+  }
+
+  const merged = new Map();
+  for (const group of resolvedGroups) {
+    const current = merged.get(group.tangkiId);
+    if (!current) {
+      merged.set(group.tangkiId, { ...group, ids: [...group.ids] });
+      continue;
+    }
+    current.ids = [...new Set([...current.ids, ...group.ids])];
+  }
+
+  return [...merged.values()];
+};
+
+const assertUkuranBALengkap = (resolvedGroups) => {
+  const tankiTanpaUkuran = resolvedGroups.filter((group) => {
+    const ukuran = parseUkuranBA(group.ukuranCairan, group.ukuranAir);
+    return (
+      ukuran.parsedUkuranCairan === null ||
+      Number.isNaN(ukuran.parsedUkuranCairan) ||
+      ukuran.parsedUkuranAir === null ||
+      Number.isNaN(ukuran.parsedUkuranAir)
+    );
+  });
+
+  if (tankiTanpaUkuran.length) {
+    throw new Error(
+      "Ukuran cairan dan ukuran air wajib diisi untuk setiap tanki",
+    );
+  }
 };
 
 const generateBABongkarBuffer = (tanggal, data, extras = {}) => {
@@ -1417,6 +1516,7 @@ module.exports = {
       const dokumen = req.file ? `/bak3s/${req.file.filename}` : null;
       const result = await BAK3S.create({
         BABongkarId,
+        tanggal: parsed.tanggal,
         dokumen,
         api: parsed.api,
         BSNW: parsed.BSNW,
@@ -1465,6 +1565,7 @@ module.exports = {
 
       await BAK3S.update(
         {
+          tanggal: parsed.tanggal,
           dokumen,
           api: parsed.api,
           BSNW: parsed.BSNW,
@@ -1792,7 +1893,8 @@ module.exports = {
             sumurMinyakId: item.sumurMinyakId,
             produksi: item.produksi,
             satuanVolumeId: parsedSatuanVolumeId,
-            tanggal: bak3sData.BABongkar?.tanggal || new Date(),
+            tanggal:
+              bak3sData.tanggal || bak3sData.BABongkar?.tanggal || new Date(),
           })),
           { transaction },
         );
@@ -2009,74 +2111,17 @@ module.exports = {
         );
       }
 
-      const pengisianById = new Map(
-        pengisianList.map((item) => [item.id, item]),
+      const resolvedGroups = resolveBABongkarGroups(
+        tankiGroups,
+        pengisianList,
       );
-      const resolvedGroups = [];
-
-      for (const group of tankiGroups) {
-        const items = group.ids.map((id) => pengisianById.get(id)).filter(Boolean);
-        const tangkiIds = [
-          ...new Set(
-            items
-              .map((item) => item.tangkiId ?? item.tanki?.id)
-              .filter(Boolean),
-          ),
-        ];
-
-        if (group.tangkiId) {
-          const mismatch = items.find(
-            (item) => (item.tangkiId ?? item.tanki?.id) !== group.tangkiId,
-          );
-          if (mismatch) {
-            throw new Error(
-              "Pengisian tanki tidak sesuai dengan tanki yang dipilih",
-            );
-          }
-        }
-
-        if (tangkiIds.length !== 1 && !group.tangkiId) {
-          for (const tangkiId of tangkiIds) {
-            const groupItems = items.filter(
-              (item) => (item.tangkiId ?? item.tanki?.id) === tangkiId,
-            );
-            resolvedGroups.push({
-              tangkiId,
-              ids: groupItems.map((item) => item.id),
-              ukuranCairan: group.ukuranCairan,
-              ukuranAir: group.ukuranAir,
-            });
-          }
-        } else {
-          resolvedGroups.push({
-            tangkiId: group.tangkiId || tangkiIds[0],
-            ids: group.ids,
-            ukuranCairan: group.ukuranCairan,
-            ukuranAir: group.ukuranAir,
-          });
-        }
-      }
 
       const ujiLabs = await assertTankiSiapBABongkar(
         resolvedGroups.map((group) => group.tangkiId),
         transaction,
       );
 
-      const tankiTanpaUkuran = resolvedGroups.filter((group) => {
-        const ukuran = parseUkuranBA(group.ukuranCairan, group.ukuranAir);
-        return (
-          ukuran.parsedUkuranCairan === null ||
-          Number.isNaN(ukuran.parsedUkuranCairan) ||
-          ukuran.parsedUkuranAir === null ||
-          Number.isNaN(ukuran.parsedUkuranAir)
-        );
-      });
-
-      if (tankiTanpaUkuran.length) {
-        throw new Error(
-          "Ukuran cairan dan ukuran air wajib diisi untuk setiap tanki",
-        );
-      }
+      assertUkuranBALengkap(resolvedGroups);
 
       const firstUkuran = parseUkuranBA(
         resolvedGroups[0]?.ukuranCairan,
@@ -2154,6 +2199,228 @@ module.exports = {
       console.error("Error membuat BA Bongkar:", err);
       return res.status(500).json({
         message: err.message || "Gagal membuat BA Bongkar",
+      });
+    }
+  },
+
+  editBABongkar: async (req, res) => {
+    const baId = parseInt(req.params.id, 10);
+    const { tanggal } = req.body;
+    const tankiGroups = parseTankiBAPayload(req.body);
+
+    if (!baId) {
+      return res.status(400).json({ message: "ID BA Bongkar tidak valid" });
+    }
+
+    if (!tanggal) {
+      return res
+        .status(400)
+        .json({ message: "Tanggal BA Bongkar wajib diisi" });
+    }
+
+    const pengisianIds = [
+      ...new Set(tankiGroups.flatMap((group) => group.ids)),
+    ];
+
+    if (!pengisianIds.length) {
+      return res
+        .status(400)
+        .json({ message: "Minimal satu pengisian tanki harus dipilih" });
+    }
+
+    const transaction = await sequelize.transaction();
+    let committed = false;
+
+    try {
+      const dataBA = await BABongkar.findByPk(baId, { transaction });
+      if (!dataBA) {
+        throw httpError(404, "BA Bongkar tidak ditemukan");
+      }
+
+      const pengisianList = await pengisianTanki.findAll({
+        where: { id: { [Op.in]: pengisianIds } },
+        include: pengisianIncludeForBA,
+        transaction,
+      });
+
+      if (pengisianList.length !== pengisianIds.length) {
+        throw httpError(400, "Beberapa data pengisian tanki tidak ditemukan");
+      }
+
+      const milikBALain = pengisianList.filter(
+        (item) => item.BABongkarId && item.BABongkarId !== baId,
+      );
+      if (milikBALain.length) {
+        throw httpError(
+          400,
+          "Beberapa pengisian tanki sudah masuk BA Bongkar lain",
+        );
+      }
+
+      const resolvedGroups = resolveBABongkarGroups(
+        tankiGroups,
+        pengisianList,
+      );
+      assertUkuranBALengkap(resolvedGroups);
+
+      const existingPengisian = await pengisianTanki.findAll({
+        where: { BABongkarId: baId },
+        attributes: ["id", "tangkiId"],
+        transaction,
+      });
+      const existingDetails = await BABongkarTanki.findAll({
+        where: { BABongkarId: baId },
+        transaction,
+      });
+
+      const existingPengisianIds = new Set(
+        existingPengisian.map((item) => item.id),
+      );
+      const existingTangkiIds = new Set([
+        ...existingDetails.map((item) => item.tangkiId),
+        ...existingPengisian.map((item) => item.tangkiId),
+      ]);
+      const nextTangkiIds = new Set(
+        resolvedGroups.map((group) => group.tangkiId),
+      );
+
+      const newTangkiIds = [...nextTangkiIds].filter(
+        (tangkiId) => !existingTangkiIds.has(tangkiId),
+      );
+      const removedTangkiIds = [...existingTangkiIds].filter(
+        (tangkiId) => tangkiId && !nextTangkiIds.has(tangkiId),
+      );
+
+      const ujiLabsBaru = newTangkiIds.length
+        ? await assertTankiSiapBABongkar(newTangkiIds, transaction)
+        : [];
+
+      const removedPengisianIds = [...existingPengisianIds].filter(
+        (id) => !pengisianIds.includes(id),
+      );
+      const addedPengisianIds = pengisianIds.filter(
+        (id) => !existingPengisianIds.has(id),
+      );
+
+      const firstUkuran = parseUkuranBA(
+        resolvedGroups[0]?.ukuranCairan,
+        resolvedGroups[0]?.ukuranAir,
+      );
+
+      await dataBA.update(
+        {
+          tanggal,
+          ukuranCairan: firstUkuran.parsedUkuranCairan,
+          ukuranAir: firstUkuran.parsedUkuranAir,
+        },
+        { transaction },
+      );
+
+      if (removedTangkiIds.length) {
+        await BABongkarTanki.destroy({
+          where: {
+            BABongkarId: baId,
+            tangkiId: { [Op.in]: removedTangkiIds },
+          },
+          transaction,
+        });
+        await ujiLabK3S.update(
+          { BABongkarId: null },
+          {
+            where: {
+              BABongkarId: baId,
+              tangkiId: { [Op.in]: removedTangkiIds },
+            },
+            transaction,
+          },
+        );
+      }
+
+      for (const group of resolvedGroups) {
+        const ukuran = parseUkuranBA(group.ukuranCairan, group.ukuranAir);
+        const existingDetail = existingDetails.find(
+          (item) => item.tangkiId === group.tangkiId,
+        );
+
+        if (existingDetail && !removedTangkiIds.includes(group.tangkiId)) {
+          await existingDetail.update(
+            {
+              ukuranCairan: ukuran.parsedUkuranCairan,
+              ukuranAir: ukuran.parsedUkuranAir,
+            },
+            { transaction },
+          );
+        } else if (!existingDetail) {
+          await BABongkarTanki.create(
+            {
+              BABongkarId: baId,
+              tangkiId: group.tangkiId,
+              ukuranCairan: ukuran.parsedUkuranCairan,
+              ukuranAir: ukuran.parsedUkuranAir,
+            },
+            { transaction },
+          );
+        }
+      }
+
+      if (removedPengisianIds.length) {
+        await pengisianTanki.update(
+          { BABongkarId: null },
+          {
+            where: {
+              id: { [Op.in]: removedPengisianIds },
+              BABongkarId: baId,
+            },
+            transaction,
+          },
+        );
+      }
+
+      if (addedPengisianIds.length) {
+        await pengisianTanki.update(
+          { BABongkarId: baId },
+          {
+            where: {
+              id: { [Op.in]: addedPengisianIds },
+              BABongkarId: { [Op.is]: null },
+            },
+            transaction,
+          },
+        );
+      }
+
+      if (ujiLabsBaru.length) {
+        await ujiLabK3S.update(
+          { BABongkarId: baId },
+          {
+            where: { id: { [Op.in]: ujiLabsBaru.map((item) => item.id) } },
+            transaction,
+          },
+        );
+      }
+
+      await transaction.commit();
+      committed = true;
+
+      const io = req.app.get("socketio");
+      await notifyDashboardChange(io, {
+        type: "baBongkar:updated",
+        title: "BA Bongkar Diperbarui",
+        description: `BA Bongkar #${baId} diperbarui (${resolvedGroups.length} tanki, ${pengisianIds.length} pengisian)`,
+        entity: "BABongkar",
+        entityId: baId,
+      });
+
+      return res.status(200).json({
+        message: "BA Bongkar berhasil diperbarui",
+      });
+    } catch (err) {
+      if (!committed) {
+        await transaction.rollback();
+      }
+      console.error("Error mengubah BA Bongkar:", err);
+      return res.status(err.statusCode || 500).json({
+        message: err.message || "Gagal mengubah BA Bongkar",
       });
     }
   },
