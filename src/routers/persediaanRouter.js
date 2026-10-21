@@ -8,6 +8,7 @@ router.get("/get/seed", persediaanControllers.getSeed);
 router.post("/post", persediaanControllers.postPersediaan);
 router.get("/get/masuk/:id", persediaanControllers.getStokMasuk);
 router.get("/search", persediaanControllers.searchPersediaan);
+router.get("/get/satuan", persediaanControllers.getSatuan);
 router.post(
   "/post/masuk",
   fileUploader({

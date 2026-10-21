@@ -52,6 +52,7 @@ const userKPBPNControllers = require("./userKPBPNControllers");
 const dashboardControllers = require("./DashboardControllers");
 const stockOpnameTankiControllers = require("./stockOpnameTankiControllers");
 const laporanKPBPNControllers = require("./laporanKPBPNControllers");
+const asetControllers = require("./asetControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -106,4 +107,5 @@ module.exports = {
   dashboardControllers,
   stockOpnameTankiControllers,
   laporanKPBPNControllers,
+  asetControllers,
 };

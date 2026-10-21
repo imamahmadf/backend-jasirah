@@ -18,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.statusPembayaran);
       this.belongsTo(models.pegawai);
       this.hasMany(models.stokMasuk);
+      this.hasMany(models.aset, { foreignKey: "pengeluaranId" });
       this.belongsTo(models.rekanan);
     }
   }
@@ -30,6 +31,8 @@ module.exports = (sequelize, DataTypes) => {
       metodePembayaranId: DataTypes.INTEGER,
       jenisPengeluaranId: DataTypes.INTEGER,
       nominal: DataTypes.INTEGER,
+      tipeDiskon: DataTypes.ENUM("nominal", "persen"),
+      nilaiDiskon: DataTypes.DECIMAL(15, 2),
       pegawaiId: DataTypes.INTEGER,
       statusPembayaranId: DataTypes.INTEGER,
       foto: DataTypes.STRING,

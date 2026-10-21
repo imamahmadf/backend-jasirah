@@ -8,6 +8,7 @@ const {
   laporanPersediaan,
   sumberDana,
   daftarUnitKerja,
+  satuanPersediaan,
 } = require("../models");
 
 const { Op, fn, col, literal } = require("sequelize");
@@ -190,6 +191,20 @@ module.exports = {
       });
     }
   },
+  getSatuan: async (req, res) => {
+    try {
+      const result = await satuanPersediaan.findAll({
+        attributes: ["id", "satuan"],
+        order: [["satuan", "ASC"]],
+      });
+      return res.status(200).json({ result });
+    } catch (err) {
+      return res.status(500).json({
+        message: err.toString(),
+        code: 500,
+      });
+    }
+  },
   searchPersediaan: async (req, res) => {
     try {
       const { q } = req.query;
@@ -233,12 +248,38 @@ module.exports = {
       return Number.isNaN(n) ? null : n;
     };
 
+    const resolveLaporanPersediaanId = async (explicitId, tanggalBarang) => {
+      const parsed = toInt(explicitId);
+      if (parsed) return parsed;
+
+      const dateKey = tanggalBarang ? String(tanggalBarang).slice(0, 10) : "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+
+      const laporan = await laporanPersediaan.findOne({
+        where: {
+          tanggalAwal: { [Op.lte]: `${dateKey} 23:59:59` },
+          tanggalAkhir: { [Op.gte]: `${dateKey} 00:00:00` },
+        },
+        order: [
+          ["status", "ASC"],
+          ["id", "DESC"],
+        ],
+      });
+
+      return laporan?.id || null;
+    };
+
     try {
       const filePath = "persediaan";
       let foto = null;
       if (req.file) {
         foto = `/${filePath}/${req.file.filename}`;
       }
+
+      const resolvedLaporanId = await resolveLaporanPersediaanId(
+        laporanPersediaanId,
+        tanggal,
+      );
 
       const result = await stokMasuk.create({
         persediaanId: toInt(persediaanId),
@@ -248,7 +289,7 @@ module.exports = {
         tanggal,
         keterangan: keterangan || null,
         spesifikasi: spesifikasi || null,
-        laporanPersediaanId: toInt(laporanPersediaanId),
+        laporanPersediaanId: resolvedLaporanId,
         nomorPesanan: toInt(nomorPesanan),
         sumberDanaId: toInt(sumberDanaId),
         suratPesananId: toInt(suratPesananId),
@@ -533,6 +574,7 @@ module.exports = {
           "hargaSatuan",
           "foto",
           "unitKerjaId",
+          "tanggal",
         ],
         include: [
           {
@@ -611,6 +653,7 @@ module.exports = {
             sumberDanaId: sumberDanaId,
             hargaSatuan: hargaSatuan,
             foto: foto || null,
+            tanggalMasuk: stokMasukInfo.tanggal || null,
             stokAwal: stokAwal,
             stokMasuk: stokMasukTWIni, // ← Stok baru yang masuk di TW ini dengan stokMasuk.id yang sama
             jumlahMasuk: totalMasuk, // ← Total stok (stok awal + stok masuk TW ini)

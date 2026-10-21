@@ -104,58 +104,83 @@ module.exports = {
   getDetailLaporan: async (req, res) => {
     const id = req.params.id;
     const unitKerjaId = req.query.unitKerjaId;
+    const sumberDanaId = req.query.sumberDanaId;
+    const q = req.query.q?.trim();
+    const tanggalFrom = req.query.tanggalFrom;
+    const tanggalTo = req.query.tanggalTo;
+    const page = parseInt(req.query.page, 10) || 0;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const offset = page * limit;
 
     try {
-      const stokMasukInclude = {
-        model: stokMasuk,
-        attributes: [
-          "id",
-          "persediaanId",
-          "unitKerjaId",
-          "jumlah",
-          "hargaSatuan",
-          "tanggal",
-          "spesifikasi",
-          "keterangan",
-          "nomorPesanan",
-          "laporanPersediaanId",
-          "sumberDanaId",
-          "suratPesananId",
-          "satuanPersediaanId",
-          "foto",
-          "pengeluaranId",
-        ],
-        include: [
-          {
-            model: persediaan,
-            include: [
-              {
-                model: tipePersediaan,
-                include: [
-                  {
-                    model: rinObPersediaan,
-                    include: [{ model: obPersediaan }],
-                  },
-                ],
-              },
-            ],
-          },
-          { model: sumberDana, attributes: ["id", "sumber"] },
-          { model: suratPesanan, attributes: ["id", "nomor"] },
-          { model: satuanPersediaan },
-          { model: pengeluaran, attributes: ["id", "foto"] },
-          { model: daftarUnitKerja, attributes: ["id", "unitKerja"] },
-        ],
-      };
-
-      if (unitKerjaId) {
-        stokMasukInclude.where = { unitKerjaId };
+      const laporan = await laporanPersediaan.findByPk(id);
+      if (!laporan) {
+        return res.status(404).json({ message: "Laporan tidak ditemukan" });
       }
 
-      const result = await laporanPersediaan.findAll({
-        where: { id },
-        include: [stokMasukInclude],
+      const where = { laporanPersediaanId: id };
+      if (unitKerjaId) where.unitKerjaId = unitKerjaId;
+      if (sumberDanaId) where.sumberDanaId = sumberDanaId;
+      if (tanggalFrom && tanggalTo) {
+        where.tanggal = { [Op.between]: [tanggalFrom, `${tanggalTo} 23:59:59`] };
+      } else if (tanggalFrom) {
+        where.tanggal = { [Op.gte]: tanggalFrom };
+      } else if (tanggalTo) {
+        where.tanggal = { [Op.lte]: `${tanggalTo} 23:59:59` };
+      }
+      if (q) {
+        where[Op.or] = [
+          { spesifikasi: { [Op.like]: `%${q}%` } },
+          { keterangan: { [Op.like]: `%${q}%` } },
+          { "$persediaan.nama$": { [Op.like]: `%${q}%` } },
+          { "$persediaan.NUSP$": { [Op.like]: `%${q}%` } },
+          { "$persediaan.kodeBarang$": { [Op.like]: `%${q}%` } },
+          { "$suratPesanan.nomor$": { [Op.like]: `%${q}%` } },
+        ];
+      }
+
+      const stokInclude = [
+        {
+          model: persediaan,
+          required: false,
+          include: [
+            {
+              model: tipePersediaan,
+              include: [
+                {
+                  model: rinObPersediaan,
+                  include: [{ model: obPersediaan }],
+                },
+              ],
+            },
+          ],
+        },
+        { model: sumberDana, attributes: ["id", "sumber"] },
+        { model: suratPesanan, attributes: ["id", "nomor"], required: false },
+        { model: satuanPersediaan },
+        { model: pengeluaran, attributes: ["id", "foto"] },
+        { model: daftarUnitKerja, attributes: ["id", "unitKerja"] },
+      ];
+
+      const stokResult = await stokMasuk.findAndCountAll({
+        where,
+        include: stokInclude,
+        limit,
+        offset,
+        order: [
+          ["tanggal", "DESC"],
+          ["id", "DESC"],
+        ],
+        distinct: true,
+        subQuery: false,
       });
+
+      const result = [
+        {
+          ...laporan.toJSON(),
+          stokMasuks: stokResult.rows,
+        },
+      ];
 
       const resultSumberDana = await sumberDana.findAll({
         attributes: ["id", "sumber"],
@@ -190,6 +215,10 @@ module.exports = {
         resultSumberDana,
         resultSuratPesanan,
         resultSatuan,
+        page,
+        limit,
+        totalRows: stokResult.count,
+        totalPage: Math.ceil(stokResult.count / limit),
       });
     } catch (err) {
       console.error(err);

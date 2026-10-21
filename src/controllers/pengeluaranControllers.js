@@ -9,9 +9,34 @@ const {
   indukUnitKerja,
   satuanPersediaan,
   stokMasuk,
+  persediaan,
+  aset,
+  jenisAset,
+  kondisiAset,
 } = require("../models");
 const ExcelJS = require("exceljs");
 const { Op } = require("sequelize");
+
+const hitungDiskonPengeluaran = (item) => {
+  const hargaAsli = Number(item?.nominal || 0);
+  const tipe = item?.tipeDiskon;
+  const nilai = Number(item?.nilaiDiskon || 0);
+  if (!tipe || nilai <= 0) {
+    return {
+      hargaAsli,
+      potongan: 0,
+      hargaSetelahDiskon: hargaAsli,
+    };
+  }
+  const potonganMentah =
+    tipe === "persen" ? Math.round((hargaAsli * nilai) / 100) : Math.round(nilai);
+  const potongan = Math.min(Math.max(potonganMentah, 0), hargaAsli);
+  return {
+    hargaAsli,
+    potongan,
+    hargaSetelahDiskon: hargaAsli - potongan,
+  };
+};
 
 const NAMA_BULAN = [
   "Januari",
@@ -772,7 +797,11 @@ module.exports = {
         { header: "metode", key: "metode", width: 20 },
         { header: "jenis", key: "jenis", width: 20 },
         { header: "status", key: "status", width: 25 },
-        { header: "nominal", key: "nominal", width: 25 },
+        { header: "harga asli", key: "nominal", width: 25 },
+        { header: "tipe diskon", key: "tipeDiskon", width: 16 },
+        { header: "nilai diskon", key: "nilaiDiskon", width: 16 },
+        { header: "potongan", key: "potongan", width: 18 },
+        { header: "harga setelah diskon", key: "hargaSetelahDiskon", width: 22 },
       ];
 
       // Data rows
@@ -789,7 +818,16 @@ module.exports = {
           metode: item?.metodePembayaran?.nama || "-",
           jenis: item?.jenisPengeluaran?.nama || "-",
           status: item?.statusPembayaran?.nama || "-",
-          nominal: item?.nominal || "-",
+          nominal: Number(item?.nominal || 0),
+          tipeDiskon: item?.tipeDiskon || "-",
+          nilaiDiskon:
+            item?.tipeDiskon === "persen"
+              ? `${Number(item?.nilaiDiskon || 0)}%`
+              : item?.tipeDiskon === "nominal"
+                ? Number(item?.nilaiDiskon || 0)
+                : "-",
+          potongan: hitungDiskonPengeluaran(item).potongan,
+          hargaSetelahDiskon: hitungDiskonPengeluaran(item).hargaSetelahDiskon,
         });
       });
 
@@ -811,6 +849,76 @@ module.exports = {
       return res.status(500).json({
         message: err.toString(),
         code: 500,
+      });
+    }
+  },
+
+  aturDiskon: async (req, res) => {
+    try {
+      const current = await pengeluaran.findByPk(req.params.id);
+      if (!current) {
+        return res.status(404).json({
+          success: false,
+          message: "Data pengeluaran tidak ditemukan",
+        });
+      }
+
+      const hapus =
+        req.body.hapus === true ||
+        req.body.hapus === "true" ||
+        !req.body.tipeDiskon;
+      if (hapus) {
+        await current.update({ tipeDiskon: null, nilaiDiskon: null });
+        const result = await pengeluaran.findByPk(current.id);
+        return res.status(200).json({
+          success: true,
+          message: "Diskon pengeluaran dihapus",
+          result,
+        });
+      }
+
+      const tipeDiskon = req.body.tipeDiskon;
+      if (!["nominal", "persen"].includes(tipeDiskon)) {
+        return res.status(400).json({
+          success: false,
+          message: "Tipe diskon harus nominal atau persen",
+        });
+      }
+
+      const nilaiDiskon = Number(req.body.nilaiDiskon);
+      const hargaAsli = Number(current.nominal || 0);
+      if (!Number.isFinite(nilaiDiskon) || nilaiDiskon <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Nilai diskon wajib lebih dari 0",
+        });
+      }
+      if (tipeDiskon === "persen" && nilaiDiskon > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Persentase diskon maksimal 100",
+        });
+      }
+      if (tipeDiskon === "nominal" && nilaiDiskon > hargaAsli) {
+        return res.status(400).json({
+          success: false,
+          message: "Diskon nominal tidak boleh melebihi harga asli",
+        });
+      }
+
+      await current.update({ tipeDiskon, nilaiDiskon });
+      const result = await pengeluaran.findByPk(current.id);
+      return res.status(200).json({
+        success: true,
+        message: "Diskon pengeluaran berhasil disimpan",
+        result,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal menyimpan diskon pengeluaran",
+        error: err.message,
       });
     }
   },
@@ -854,7 +962,30 @@ module.exports = {
 
         include: [
           { model: pegawai },
-          { model: stokMasuk, include: [{ model: satuanPersediaan }] },
+          {
+            model: stokMasuk,
+            include: [
+              { model: satuanPersediaan, attributes: ["id", "satuan"] },
+              { model: persediaan, attributes: ["id", "nama"] },
+              {
+                model: daftarUnitKerja,
+                attributes: ["id", "unitKerja"],
+              },
+            ],
+          },
+          {
+            model: aset,
+            include: [
+              { model: jenisAset, attributes: ["id", "nama"] },
+              { model: kondisiAset, attributes: ["id", "nama"] },
+              {
+                model: pegawai,
+                as: "penanggungJawab",
+                attributes: ["id", "nama"],
+              },
+              { model: daftarUnitKerja, attributes: ["id", "unitKerja"] },
+            ],
+          },
           { model: metodePembayaran },
           { model: jenisPengeluaran },
           { model: statusPembayaran },
