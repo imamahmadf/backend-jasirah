@@ -1015,14 +1015,7 @@ module.exports = {
     }
 
     try {
-      const existing = await suratJalan.findByPk(id, {
-        include: [
-          {
-            model: konfirmasiPenerimaan,
-            include: [{ model: pengisianTanki, attributes: ["id"] }],
-          },
-        ],
-      });
+      const existing = await suratJalan.findByPk(id);
 
       if (!existing) {
         return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
@@ -1031,29 +1024,6 @@ module.exports = {
       if (existing.statusSuratJalanId === 4) {
         return res.status(400).json({
           error: "Surat jalan sudah berstatus BATAL",
-        });
-      }
-
-      if (
-        existing.statusSuratJalanId === 3 ||
-        existing.statusSuratJalanId === 5 ||
-        existing.statusSuratJalanId === 6
-      ) {
-        return res.status(400).json({
-          error:
-            "Surat jalan yang sudah tiba, dikonfirmasi volumenya, atau dibongkar tidak dapat dibatalkan",
-        });
-      }
-
-      const konfirmasiList = existing.konfirmasiPenerimaans || [];
-      const usedInPengisian = konfirmasiList.some(
-        (kp) => (kp.pengisianTankis || []).length > 0,
-      );
-
-      if (usedInPengisian) {
-        return res.status(400).json({
-          error:
-            "Surat jalan sudah digunakan pada pengisian tanki dan tidak dapat dibatalkan",
         });
       }
 
