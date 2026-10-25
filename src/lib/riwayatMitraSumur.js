@@ -133,6 +133,27 @@ const sumurIdsMilikMitra = async (mitraIds, tanggal, options = {}) => {
   ];
 };
 
+const sumurIdsMilikMitraSekarang = async (mitraIds) => {
+  const ids = normalizeIds(mitraIds);
+  if (!ids.length) return [];
+
+  const rows = await sumurMinyak.findAll({
+    attributes: ["id"],
+    where: { mitraId: ids },
+  });
+
+  return rows.map((row) => row.id);
+};
+
+const sumurIdsUntukInputProduksi = async (mitraId, tanggal) => {
+  const [historis, sekarang] = await Promise.all([
+    sumurIdsMilikMitra(mitraId, tanggal, { termasukHariMulai: true }),
+    sumurIdsMilikMitraSekarang(mitraId),
+  ]);
+
+  return [...new Set([...historis, ...sekarang])];
+};
+
 const sumurIdsUntukPeriodeMitra = async (entri, options = {}) => {
   const sumurIds = new Set();
 
@@ -232,6 +253,7 @@ module.exports = {
   catatMitraAwal,
   pindahMitraSumur,
   sumurIdsMilikMitra,
+  sumurIdsUntukInputProduksi,
   sumurIdsUntukPeriodeMitra,
   muatRiwayatSumur,
   mitraPadaTanggal,

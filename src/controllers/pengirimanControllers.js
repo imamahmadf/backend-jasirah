@@ -28,10 +28,7 @@ const {
 
 const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
-const {
-  sumurIdsMilikMitra,
-  muatSumurDenganMitraHistoris,
-} = require("../lib/riwayatMitraSumur");
+const { sumurIdsUntukInputProduksi } = require("../lib/riwayatMitraSumur");
 const { isPetugasKeamananOnly } = require("../lib/auth");
 
 const rejectPetugasKeamanan = (req, res, message) => {
@@ -1724,9 +1721,10 @@ module.exports = {
         resultSatuanVolume,
         produksiHariIni,
       ] = await Promise.all([
-        sumurIdsMilikMitra(suratJalanData.mitraId, suratJalanData.tanggal, {
-          termasukHariMulai: true,
-        }),
+        sumurIdsUntukInputProduksi(
+          suratJalanData.mitraId,
+          suratJalanData.tanggal,
+        ),
         produksiSumur.findAll({
           where: { suratJalanId },
           include: [{ model: sumurMinyak }, { model: satuanVolume }],
@@ -1763,11 +1761,13 @@ module.exports = {
           ...resultProduksi.map((row) => row.sumurMinyakId),
         ]),
       ];
-      const resultSumurMinyak = await muatSumurDenganMitraHistoris(
-        sumurIds,
-        suratJalanData.tanggal,
-        { termasukHariMulai: true },
-      );
+      const resultSumurMinyak = sumurIds.length
+        ? await sumurMinyak.findAll({
+            where: { id: sumurIds },
+            include: [{ model: mitra, attributes: ["id", "nama"] }],
+            order: [["nama", "ASC"]],
+          })
+        : [];
 
       return res.status(200).json({
         success: true,
@@ -1842,9 +1842,10 @@ module.exports = {
 
       const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
       const [sumurMilikMitra, produksiTersimpan] = await Promise.all([
-        sumurIdsMilikMitra(suratJalanData.mitraId, suratJalanData.tanggal, {
-          termasukHariMulai: true,
-        }),
+        sumurIdsUntukInputProduksi(
+          suratJalanData.mitraId,
+          suratJalanData.tanggal,
+        ),
         produksiSumur.findAll({
           attributes: ["sumurMinyakId"],
           where: { suratJalanId: parsedSuratJalanId },
