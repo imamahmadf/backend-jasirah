@@ -9,5 +9,9 @@ routers.post(
   nomorSuratKPBPNControllers.updateNomorSuratKPBPN,
 );
 routers.post("/edit/mitra/:id", nomorSuratKPBPNControllers.updateNomorUrutMitra);
+routers.post(
+  "/edit/surat-jalan",
+  nomorSuratKPBPNControllers.updateNomorUrutSuratJalanAsal,
+);
 
 module.exports = routers;

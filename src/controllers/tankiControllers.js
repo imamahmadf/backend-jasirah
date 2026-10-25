@@ -952,6 +952,7 @@ const buildPengisianTankiWhere = async (query) => {
   const nomorSurat = escapeLike(query.nomorSurat);
   const statusBA = String(query.statusBA || "").trim();
   const mitraKeyword = escapeLike(query.mitra);
+  const supirKeyword = escapeLike(query.supir);
   const platKeyword = escapeLike(query.plat);
 
   if (start || end) {
@@ -974,7 +975,7 @@ const buildPengisianTankiWhere = async (query) => {
     whereCondition.BABongkarId = { [Op.is]: null };
   }
 
-  if (!mitraKeyword && !platKeyword) {
+  if (!mitraKeyword && !supirKeyword && !platKeyword) {
     return whereCondition;
   }
 
@@ -1000,6 +1001,16 @@ const buildPengisianTankiWhere = async (query) => {
                       attributes: [],
                       required: true,
                       where: { nama: { [Op.like]: `%${mitraKeyword}%` } },
+                    },
+                  ]
+                : []),
+              ...(supirKeyword
+                ? [
+                    {
+                      model: supir,
+                      attributes: [],
+                      required: true,
+                      where: { nama: { [Op.like]: `%${supirKeyword}%` } },
                     },
                   ]
                 : []),

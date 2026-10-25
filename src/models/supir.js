@@ -10,7 +10,6 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      this.belongsTo(models.mitra, { foreignKey: "mitraId" });
       this.hasMany(models.suratJalan, { foreignKey: "supirId" });
     }
   }
@@ -19,7 +18,6 @@ module.exports = (sequelize, DataTypes) => {
     nik: DataTypes.STRING,
     ktp: DataTypes.STRING,
     foto: DataTypes.STRING,
-    mitraId: DataTypes.INTEGER
   }, {
     sequelize,
     modelName: 'supir',

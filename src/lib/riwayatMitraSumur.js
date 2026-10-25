@@ -2,6 +2,8 @@ const { Op } = require("sequelize");
 const { riwayatMitraSumur, mitra, sumurMinyak } = require("../models");
 
 const AWAL_RIWAYAT = new Date("1970-01-01T00:00:00.000Z");
+const OFFSET_WITA_MS = 8 * 60 * 60 * 1000;
+const SATU_HARI_MS = 24 * 60 * 60 * 1000;
 
 const normalizeIds = (value) =>
   [
@@ -19,28 +21,31 @@ const toDate = (value) => {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
 
-const mulaiHari = (value) => {
-  const date = toDate(value);
-  date.setHours(0, 0, 0, 0);
-  return date;
+const mulaiHariWita = (value) => {
+  const shifted = new Date(toDate(value).getTime() + OFFSET_WITA_MS);
+  return new Date(
+    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) -
+      OFFSET_WITA_MS,
+  );
 };
 
-const hariSama = (a, b) => mulaiHari(a).getTime() === mulaiHari(b).getTime();
+const akhirHariWita = (value) =>
+  new Date(mulaiHariWita(value).getTime() + SATU_HARI_MS - 1);
+
+const periodeAktif = (mulai, selesai, saat) =>
+  mulai.getTime() <= saat.getTime() &&
+  (!selesai || selesai.getTime() > saat.getTime());
 
 const periodeMencakup = (row, tanggal, { termasukHariMulai = false } = {}) => {
   const at = toDate(tanggal);
   const mulai = new Date(row.mulai);
   const selesai = row.selesai ? new Date(row.selesai) : null;
 
-  if (mulai.getTime() <= at.getTime() && (!selesai || selesai.getTime() > at.getTime())) {
-    return true;
-  }
+  if (periodeAktif(mulai, selesai, at)) return true;
 
-  return (
-    termasukHariMulai &&
-    hariSama(mulai, at) &&
-    (!selesai || selesai.getTime() > mulaiHari(at).getTime())
-  );
+  // Tanggal surat jalan dari input date terbaca jam 08:00 WITA.
+  // Sumur yang dipindahkan nanti di hari yang sama, misalnya jam 10:00, tetap dipakai.
+  return termasukHariMulai && periodeAktif(mulai, selesai, akhirHariWita(at));
 };
 
 const catatMitraAwal = async (sumurMinyakId, mitraId, transaction) => {
@@ -107,9 +112,8 @@ const sumurIdsMilikMitra = async (mitraIds, tanggal, options = {}) => {
   if (!ids.length) return [];
 
   const at = toDate(tanggal);
-  const awal = mulaiHari(at);
-  const akhir = new Date(awal);
-  akhir.setDate(akhir.getDate() + 1);
+  const awal = mulaiHariWita(at);
+  const akhir = new Date(awal.getTime() + SATU_HARI_MS);
 
   const rows = await riwayatMitraSumur.findAll({
     attributes: ["sumurMinyakId", "mulai", "selesai"],

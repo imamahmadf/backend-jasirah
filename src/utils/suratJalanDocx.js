@@ -205,15 +205,11 @@ function buildSuratJalanDownloadBaseName(record) {
   const storedNomor = String(record?.nomor || "").trim();
   const storedHead = storedNomor.split(/[\\/]/)[0].trim();
 
-  let nomorSurat = storedHead;
-  if (!nomorSurat) {
-    const urut = parseInt(record?.mitra?.nomorUrutSuratJalan, 10);
-    const paddedUrut = Number.isFinite(urut)
-      ? String(Math.max(urut, 0)).padStart(3, "0")
-      : "";
-    nomorSurat =
-      `${kodeAsal}${paddedUrut}` || String(record?.id || "surat-jalan");
-  }
+  const nomorSurat =
+    storedHead ||
+    (kodeAsal
+      ? `${kodeAsal}-draft-${record?.id || ""}`
+      : String(record?.id || "surat-jalan"));
 
   const kodeMitra = String(record?.mitra?.kode || "").trim() || "KODE";
   const bulan = getMonthNameFromDate(record?.tanggal);

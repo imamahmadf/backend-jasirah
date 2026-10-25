@@ -1,6 +1,29 @@
 const { Op } = require("sequelize");
-const { asalMinyak, suratJalan } = require("../models");
+const {
+  asalMinyak,
+  suratJalan,
+  mitra,
+  nomorUrutSuratJalanAsal,
+} = require("../models");
 const { notifyDashboardChange } = require("../services/dashboardKPBPNService");
+
+const gabungNomorAsal = (kodeAsal, nomorUrut) =>
+  `${String(kodeAsal || "").trim()}${String(nomorUrut).padStart(3, "0")}`;
+
+const susunNomorUrutMitra = (asal, semuaMitra, counterMap) =>
+  semuaMitra.map((itemMitra) => {
+    const nomorUrut = counterMap.get(`${asal.id}:${itemMitra.id}`) || 0;
+    return {
+      mitraId: itemMitra.id,
+      mitraNama: itemMitra.nama,
+      mitraKode: itemMitra.kode,
+      nomorUrut,
+      nomorGabunganTerakhir: nomorUrut
+        ? gabungNomorAsal(asal.nomor, nomorUrut)
+        : "-",
+      nomorGabunganBerikutnya: gabungNomorAsal(asal.nomor, nomorUrut + 1),
+    };
+  });
 
 module.exports = {
   getAsalMinyak: async (req, res) => {
@@ -32,10 +55,30 @@ module.exports = {
         where: whereCondition,
       });
       const totalPage = Math.ceil(totalRows / limit);
+      const semuaMitra = await mitra.findAll({
+        attributes: ["id", "nama", "kode"],
+        order: [["nama", "ASC"]],
+      });
+      const asalIds = result.map((item) => item.id);
+      const counters = asalIds.length
+        ? await nomorUrutSuratJalanAsal.findAll({
+            where: { asalMinyakId: { [Op.in]: asalIds } },
+            attributes: ["asalMinyakId", "mitraId", "nomorUrut"],
+          })
+        : [];
+      const counterMap = new Map(
+        counters.map((item) => [
+          `${item.asalMinyakId}:${item.mitraId}`,
+          parseInt(item.nomorUrut, 10) || 0,
+        ]),
+      );
 
       return res.status(200).json({
         success: true,
-        result,
+        result: result.map((item) => ({
+          ...item.toJSON(),
+          nomorUrutMitra: susunNomorUrutMitra(item, semuaMitra, counterMap),
+        })),
         page,
         limit,
         totalRows,

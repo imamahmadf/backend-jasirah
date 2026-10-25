@@ -350,7 +350,6 @@ const getDashboardData = async () => {
     mitra.findAll({
       limit: 5,
       order: [["createdAt", "DESC"]],
-      include: [{ model: supir }],
     }),
     tanki.findAll({
       include: [

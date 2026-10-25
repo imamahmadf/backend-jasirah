@@ -25,7 +25,11 @@ module.exports = {
   getMitra: async (req, res) => {
     try {
       const resultMitra = await mitra.findAll({
-        include: [{ model: supir }, { model: jenisMitra }],
+        include: [{ model: jenisMitra }],
+        order: [["nama", "ASC"]],
+      });
+      const resultSupir = await supir.findAll({
+        order: [["nama", "ASC"]],
       });
       const resultTransportir = await transportir.findAll({
         include: [{ model: jenisTransportir }, { model: satuanVolume }],
@@ -35,6 +39,7 @@ module.exports = {
       const resultSatuanVolume = await satuanVolume.findAll({});
       return res.status(200).json({
         resultMitra,
+        resultSupir,
         resultTransportir,
         resultJenisTransportir,
         resultJenisMitra,
@@ -135,7 +140,7 @@ module.exports = {
 
   addSupir: async (req, res) => {
     try {
-      const { nama, nik, mitraId } = req.body;
+      const { nama, nik } = req.body;
       const filePath = "supir";
       const { ktp: ktpFile, foto: fotoFile } = req.files || {};
 
@@ -154,7 +159,6 @@ module.exports = {
         nik,
         ktp,
         foto,
-        mitraId: parseInt(mitraId),
       });
 
       const io = req.app.get("socketio");
@@ -205,7 +209,7 @@ module.exports = {
       );
 
       const result = await mitra.findByPk(id, {
-        include: [{ model: supir }, { model: jenisMitra }],
+        include: [{ model: jenisMitra }],
       });
 
       const io = req.app.get("socketio");
@@ -232,17 +236,11 @@ module.exports = {
         return res.status(404).json({ error: "Mitra tidak ditemukan" });
       }
 
-      const [supirCount, suratCount, userCount] = await Promise.all([
-        supir.count({ where: { mitraId: id } }),
+      const [suratCount, userCount] = await Promise.all([
         suratJalan.count({ where: { mitraId: id } }),
         userKPBPN.count({ where: { mitraId: id } }),
       ]);
 
-      if (supirCount > 0) {
-        return res.status(400).json({
-          error: "Mitra masih memiliki supir. Hapus supir terlebih dahulu.",
-        });
-      }
       if (suratCount > 0) {
         return res.status(400).json({
           error: "Mitra masih digunakan pada surat jalan dan tidak dapat dihapus.",
@@ -369,7 +367,7 @@ module.exports = {
   editSupir: async (req, res) => {
     try {
       const { id } = req.params;
-      const { nama, nik, mitraId } = req.body;
+      const { nama, nik } = req.body;
 
       const existing = await supir.findByPk(id);
       if (!existing) {
@@ -395,14 +393,11 @@ module.exports = {
           nik,
           ktp,
           foto,
-          mitraId: parseInt(mitraId),
         },
         { where: { id } },
       );
 
-      const result = await supir.findByPk(id, {
-        include: [{ model: mitra }],
-      });
+      const result = await supir.findByPk(id);
 
       const io = req.app.get("socketio");
       await notifyDashboardChange(io, {

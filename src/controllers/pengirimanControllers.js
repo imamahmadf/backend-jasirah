@@ -9,6 +9,7 @@ const {
   statusSuratJalan,
   konfirmasiPenerimaan,
   nomorSuratKPBPN,
+  nomorUrutSuratJalanAsal,
   jenisTransportir,
   jenisMitra,
   satuanVolume,
@@ -245,6 +246,27 @@ const konfirmasiDokumenInclude = [
   },
 ];
 
+const nextNomorUrutSuratJalan = async (mitraId, asalMinyakId, transaction) => {
+  await nomorUrutSuratJalanAsal.findOrCreate({
+    where: { mitraId, asalMinyakId },
+    defaults: { nomorUrut: 0 },
+    transaction,
+  });
+
+  const counter = await nomorUrutSuratJalanAsal.findOne({
+    where: { mitraId, asalMinyakId },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+  if (!counter) {
+    throw new Error("Nomor urut surat jalan tidak dapat dikunci");
+  }
+
+  const nomorUrut = (parseInt(counter.nomorUrut, 10) || 0) + 1;
+  await counter.update({ nomorUrut }, { transaction });
+  return nomorUrut;
+};
+
 const nomorUrutDariSuratJalan = (nomorSuratJalan) => {
   const bagian = String(nomorSuratJalan || "")
     .trim()
@@ -398,6 +420,12 @@ module.exports = {
           { model: supir },
           { model: statusSuratJalan },
           { model: satuanVolume },
+          {
+            model: produksiSumur,
+            attributes: ["id", "produksi", "satuanVolumeId"],
+            separate: true,
+            include: [{ model: satuanVolume, attributes: ["id", "satuan"] }],
+          },
         ],
       });
 
@@ -422,7 +450,10 @@ module.exports = {
   getSeed: async (req, res) => {
     try {
       const resultMitra = await mitra.findAll({
-        include: [{ model: supir }],
+        order: [["nama", "ASC"]],
+      });
+      const resultSupir = await supir.findAll({
+        order: [["nama", "ASC"]],
       });
       const resultTransportir = await transportir.findAll({
         include: [{ model: satuanVolume }],
@@ -438,6 +469,7 @@ module.exports = {
 
       return res.status(200).json({
         resultMitra,
+        resultSupir,
         resultTransportir,
         resultStatusSuratJalan,
         resultSatuanVolume,
@@ -924,55 +956,63 @@ module.exports = {
     ).toUpperCase();
 
     try {
-      const [dbSurat, dbMitra, dbNoSurat] = await Promise.all([
-        suratJalan.findByPk(id, { include: [{ model: asalMinyak }] }),
-        mitra.findByPk(mitraId),
-        nomorSuratKPBPN.findOne({ where: { id: 1 } }),
-      ]);
+      const nomorBaru = await sequelize.transaction(async (transaction) => {
+        const [dbSurat, dbMitra, dbNoSurat] = await Promise.all([
+          suratJalan.findByPk(id, {
+            include: [{ model: asalMinyak }],
+            transaction,
+          }),
+          mitra.findByPk(mitraId, { transaction }),
+          nomorSuratKPBPN.findOne({ where: { id: 1 }, transaction }),
+        ]);
 
-      if (!dbSurat) {
-        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
-      }
-      if (!dbMitra) {
-        return res.status(400).json({ error: "Mitra tidak ditemukan" });
-      }
-      if (!dbNoSurat?.nomor) {
-        return res.status(500).json({
-          error: "Template nomor surat jalan tidak ditemukan",
-        });
-      }
-      if (!dbSurat.asalMinyak?.nomor) {
-        return res.status(400).json({
-          error: "Asal minyak belum diisi pada surat jalan",
-        });
-      }
+        if (!dbSurat) {
+          const error = new Error("Surat jalan tidak ditemukan");
+          error.statusCode = 404;
+          throw error;
+        }
+        if (!dbMitra) {
+          const error = new Error("Mitra tidak ditemukan");
+          error.statusCode = 400;
+          throw error;
+        }
+        if (!dbNoSurat?.nomor) {
+          const error = new Error("Template nomor surat jalan tidak ditemukan");
+          error.statusCode = 500;
+          throw error;
+        }
+        if (!dbSurat.asalMinyak?.nomor || !dbSurat.asalMinyakId) {
+          const error = new Error("Asal minyak belum diisi pada surat jalan");
+          error.statusCode = 400;
+          throw error;
+        }
 
-      const kodeMitra = dbMitra.kode;
-      const nomorUrut = (parseInt(dbMitra.nomorUrutSuratJalan, 10) || 0) + 1;
-      const nomorAsalMinyak = String(dbSurat.asalMinyak.nomor).trim();
-      const nomorGabungan = `${nomorAsalMinyak}${nomorUrut.toString().padStart(3, "0")}`;
+        const nomorUrut = await nextNomorUrutSuratJalan(
+          dbMitra.id,
+          dbSurat.asalMinyakId,
+          transaction,
+        );
+        const nomorAsalMinyak = String(dbSurat.asalMinyak.nomor).trim();
+        const nomorGabungan = `${nomorAsalMinyak}${nomorUrut
+          .toString()
+          .padStart(3, "0")}`;
+        const nomor = dbNoSurat.nomor
+          .replace("NOMOR", nomorGabungan)
+          .replace("BULAN", getRomanMonth(new Date(dbSurat.tanggal)))
+          .replace("TAHUN", "2026")
+          .replace("KODE", dbMitra.kode);
 
-      const nomorBaru = dbNoSurat.nomor
-        .replace("NOMOR", nomorGabungan)
-        .replace("BULAN", getRomanMonth(new Date(dbSurat.tanggal)))
-        .replace("TAHUN", "2026")
-        .replace("KODE", kodeMitra);
+        await dbSurat.update(
+          {
+            verifikasi: randomCode,
+            nomor,
+            statusSuratJalanId: 2,
+          },
+          { transaction },
+        );
 
-      await mitra.update(
-        { nomorUrutSuratJalan: nomorUrut },
-        { where: { id: dbMitra.id } },
-      );
-
-      const result = await suratJalan.update(
-        {
-          verifikasi: randomCode,
-          nomor: nomorBaru,
-          statusSuratJalanId: 2,
-        },
-        {
-          where: { id },
-        },
-      );
+        return nomor;
+      });
 
       const io = req.app.get("socketio");
       await notifyDashboardChange(io, {
@@ -987,11 +1027,11 @@ module.exports = {
       return res.status(200).json({
         message: "Surat jalan berhasil diverifikasi",
         verifikasi: randomCode,
-        result,
+        nomor: nomorBaru,
       });
     } catch (err) {
       console.log(err);
-      return res.status(500).json({
+      return res.status(err.statusCode || 500).json({
         error: err.message,
       });
     }
