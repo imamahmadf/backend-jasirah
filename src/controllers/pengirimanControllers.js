@@ -1068,7 +1068,22 @@ module.exports = {
       }
 
       const previousStatusId = existing.statusSuratJalanId;
-      await existing.update({ statusSuratJalanId: 4 });
+      const transaction = await sequelize.transaction();
+      let deletedProduksi = 0;
+
+      try {
+        deletedProduksi = await produksiSumur.destroy({
+          where: { suratJalanId: id },
+          transaction,
+        });
+        await existing.update({ statusSuratJalanId: 4 }, { transaction });
+        await transaction.commit();
+      } catch (txErr) {
+        if (!transaction.finished) {
+          await transaction.rollback();
+        }
+        throw txErr;
+      }
 
       try {
         const io = req.app.get("socketio");
@@ -1092,6 +1107,7 @@ module.exports = {
       return res.status(200).json({
         success: true,
         message: "Surat jalan berhasil dibatalkan",
+        deletedProduksi,
         result: existing,
       });
     } catch (err) {
@@ -1898,6 +1914,35 @@ module.exports = {
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: err.message });
+    }
+  },
+
+  hapusProduksiSumur: async (req, res) => {
+    const suratJalanId = parseInt(req.params.suratJalanId, 10);
+
+    if (!suratJalanId) {
+      return res.status(400).json({ error: "ID surat jalan tidak valid" });
+    }
+
+    try {
+      const existing = await suratJalan.findByPk(suratJalanId);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Surat jalan tidak ditemukan" });
+      }
+
+      const deletedProduksi = await produksiSumur.destroy({
+        where: { suratJalanId },
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Produksi sumur berhasil dihapus",
+        deletedProduksi,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
     }
   },
 

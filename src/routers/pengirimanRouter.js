@@ -47,6 +47,10 @@ routers.get(
   pengirimanControllers.getProduksiSumurBySuratJalan,
 );
 routers.post("/post/produksi-sumur", pengirimanControllers.saveProduksiSumur);
+routers.post(
+  "/delete/produksi-sumur/:suratJalanId",
+  pengirimanControllers.hapusProduksiSumur,
+);
 routers.post("/verifikasi/:id", pengirimanControllers.verifikasiSuratJalan);
 routers.post("/batal/:id", pengirimanControllers.batalSuratJalan);
 routers.get("/admin/stats", pengirimanControllers.getAdminDataStats);
