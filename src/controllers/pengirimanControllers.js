@@ -28,7 +28,10 @@ const {
 
 const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
-const { sumurIdsUntukInputProduksi } = require("../lib/riwayatMitraSumur");
+const {
+  sumurIdsUntukInputProduksi,
+  muatSumurDenganMitraHistoris,
+} = require("../lib/riwayatMitraSumur");
 const { isPetugasKeamananOnly } = require("../lib/auth");
 
 const rejectPetugasKeamanan = (req, res, message) => {
@@ -1761,13 +1764,10 @@ module.exports = {
           ...resultProduksi.map((row) => row.sumurMinyakId),
         ]),
       ];
-      const resultSumurMinyak = sumurIds.length
-        ? await sumurMinyak.findAll({
-            where: { id: sumurIds },
-            include: [{ model: mitra, attributes: ["id", "nama"] }],
-            order: [["nama", "ASC"]],
-          })
-        : [];
+      const resultSumurMinyak = await muatSumurDenganMitraHistoris(
+        sumurIds,
+        suratJalanData.tanggal,
+      );
 
       return res.status(200).json({
         success: true,

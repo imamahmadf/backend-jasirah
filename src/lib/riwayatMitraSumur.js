@@ -146,12 +146,12 @@ const sumurIdsMilikMitraSekarang = async (mitraIds) => {
 };
 
 const sumurIdsUntukInputProduksi = async (mitraId, tanggal) => {
-  const [historis, sekarang] = await Promise.all([
-    sumurIdsMilikMitra(mitraId, tanggal, { termasukHariMulai: true }),
+  const [padaWaktuItu, milikSekarang] = await Promise.all([
+    sumurIdsMilikMitra(mitraId, tanggal),
     sumurIdsMilikMitraSekarang(mitraId),
   ]);
 
-  return [...new Set([...historis, ...sekarang])];
+  return [...new Set([...padaWaktuItu, ...milikSekarang])];
 };
 
 const sumurIdsUntukPeriodeMitra = async (entri, options = {}) => {
@@ -188,7 +188,15 @@ const muatRiwayatSumur = async (sumurIds) => {
 const mitraPadaTanggal = (riwayatList, tanggal, options = {}) => {
   if (!riwayatList?.length) return null;
 
-  const cocok = riwayatList.filter((row) => periodeMencakup(row, tanggal, options));
+  const at = toDate(tanggal);
+  const aktifSaatItu = riwayatList.filter((row) => {
+    const mulai = new Date(row.mulai);
+    const selesai = row.selesai ? new Date(row.selesai) : null;
+    return periodeAktif(mulai, selesai, at);
+  });
+  const cocok = aktifSaatItu.length
+    ? aktifSaatItu
+    : riwayatList.filter((row) => periodeMencakup(row, tanggal, options));
   if (!cocok.length) return null;
 
   cocok.sort((a, b) => new Date(b.mulai).getTime() - new Date(a.mulai).getTime());
