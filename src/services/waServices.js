@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const QRCode = require("qrcode");
 const qrcodeTerminal = require("qrcode-terminal");
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
 const WA_SENDER_NUMBER = process.env.WA_SENDER_NUMBER || "08175101951";
 const QR_FILE_PATH = path.join(__dirname, "../public/wa-qr.png");
@@ -64,7 +64,7 @@ const processMessageQueue = async () => {
   messageQueue.length = 0;
 
   for (const item of pending) {
-    const result = await sendMessageNow(item.phone, item.message);
+    const result = await sendMessageNow(item.phone, item.message, item.dokumen);
     if (!result.success) {
       console.warn(
         `Gagal kirim WA antrian ke ${item.phone}:`,
@@ -74,7 +74,7 @@ const processMessageQueue = async () => {
   }
 };
 
-const sendMessageNow = async (phone, message) => {
+const sendMessageNow = async (phone, message, dokumen) => {
   const formattedPhone = formatWaPhone(phone);
   if (!formattedPhone) {
     return { success: false, error: "Nomor kontak tidak valid" };
@@ -82,8 +82,18 @@ const sendMessageNow = async (phone, message) => {
 
   try {
     const chatId = `${formattedPhone}@c.us`;
-    await client.sendMessage(chatId, message);
-    console.log(`📤 Pesan terkirim ke ${formattedPhone}`);
+    if (dokumen?.data) {
+      const media = new MessageMedia(
+        dokumen.mimetype || "application/pdf",
+        dokumen.data,
+        dokumen.filename || "dokumen.pdf",
+      );
+      await client.sendMessage(chatId, media, { caption: message });
+      console.log(`📤 Pesan dan dokumen terkirim ke ${formattedPhone}`);
+    } else {
+      await client.sendMessage(chatId, message);
+      console.log(`📤 Pesan terkirim ke ${formattedPhone}`);
+    }
     return { success: true };
   } catch (err) {
     console.error("❌ Gagal kirim pesan:", err.message);
@@ -238,9 +248,9 @@ const initWaClient = () => {
   return client;
 };
 
-const sendMessage = async (phone, message) => {
+const sendMessage = async (phone, message, dokumen) => {
   if (clientReady) {
-    return sendMessageNow(phone, message);
+    return sendMessageNow(phone, message, dokumen);
   }
 
   const ready = await Promise.race([
@@ -249,10 +259,10 @@ const sendMessage = async (phone, message) => {
   ]);
 
   if (ready && clientReady) {
-    return sendMessageNow(phone, message);
+    return sendMessageNow(phone, message, dokumen);
   }
 
-  messageQueue.push({ phone, message });
+  messageQueue.push({ phone, message, dokumen });
   console.warn(
     `⚠️ WhatsApp belum siap, pesan ke ${phone} masuk antrian (${messageQueue.length} menunggu)`,
   );

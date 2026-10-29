@@ -264,6 +264,7 @@ const kirimNotifPengajuanBaru = async (pengajuan) => {
         day: "numeric",
       })
     : "-";
+  const namaPemohon = pengajuan.pemohon || pengajuan.userKPBPN?.nama;
   const message = [
     "📋 *Notifikasi Pengajuan Barang & Jasa*",
     "",
@@ -273,7 +274,7 @@ const kirimNotifPengajuanBaru = async (pengajuan) => {
     `• Tanggal: ${tanggalStr}`,
     `• Jenis: ${pengajuan.jenis}`,
     `• Level: ${pengajuan.level}`,
-    pengajuan.pemohon ? `• Pemohon: ${pengajuan.pemohon}` : null,
+    namaPemohon ? `• Pemohon: ${namaPemohon}` : null,
     `• Keperluan: ${pengajuan.keperluan}`,
     "",
     "_Pesan otomatis dari sistem Jasirah Diza Berjaya_",
@@ -281,7 +282,33 @@ const kirimNotifPengajuanBaru = async (pengajuan) => {
     .filter(Boolean)
     .join("\n");
 
-  const waResult = await sendMessage(NOMOR_NOTIF_PENGAJUAN, message);
+  let dokumen = null;
+  try {
+    const templatePath = await getActiveTemplateFilePath("pengajuanBarjas");
+    if (!templatePath) {
+      console.warn(
+        "Template pengajuan tidak aktif, notifikasi WA dikirim tanpa PDF",
+      );
+    } else {
+      const docxBuffer = await buildPengajuanDocxFromRecord(
+        pengajuan,
+        templatePath,
+      );
+      const pdfBuffer = await convertDocxToPdf(docxBuffer);
+      dokumen = {
+        mimetype: "application/pdf",
+        data: pdfBuffer.toString("base64"),
+        filename: `${buildPengajuanDownloadBaseName(pengajuan)}.pdf`,
+      };
+    }
+  } catch (err) {
+    console.warn(
+      `Gagal membuat PDF pengajuan ${pengajuan.nomor}:`,
+      err.message,
+    );
+  }
+
+  const waResult = await sendMessage(NOMOR_NOTIF_PENGAJUAN, message, dokumen);
   if (waResult.queued) {
     console.log(
       `📋 WA pengajuan ${pengajuan.nomor} masuk antrian ke ${NOMOR_NOTIF_PENGAJUAN}`,
@@ -531,14 +558,7 @@ module.exports = {
         result,
       });
       setImmediate(() => {
-        kirimNotifPengajuanBaru({
-          nomor: result.nomor,
-          tanggal: result.tanggal,
-          jenis: result.jenis,
-          level: result.level,
-          keperluan: result.keperluan,
-          pemohon: result.userKPBPN?.nama,
-        }).catch((err) => {
+        kirimNotifPengajuanBaru(result).catch((err) => {
           console.error("Gagal menyiapkan notifikasi pengajuan:", err);
         });
       });
