@@ -7,6 +7,10 @@ const ROLE_KPBPN = {
   MITRA: 3,
   KEUANGAN: 4,
   PETUGAS_KEAMANAN: 5,
+  SUPERVISOR: 6,
+  GENERAL_AFFAIR: 7,
+  HR: 8,
+  GENERAL_MANAGER: 9,
 };
 
 const getKpbpnRoleIds = (req) => {
@@ -28,6 +32,25 @@ const getKpbpnRoleIds = (req) => {
   }
 
   return [];
+};
+
+const getKpbpnUserId = (req) => {
+  if (req.user?.id) return Number(req.user.id) || null;
+
+  const authHeader = req.headers?.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const decoded = jwt.verify(
+        authHeader.split(" ")[1],
+        process.env.JWT_SECRET || "SECRET_KEY",
+      );
+      return decoded?.id ? Number(decoded.id) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  return null;
 };
 
 const isPetugasKeamananOnly = (req) => {
@@ -101,6 +124,7 @@ const authorizeKpbpnRoles = (roles) => {
 module.exports = {
   ROLE_KPBPN,
   getKpbpnRoleIds,
+  getKpbpnUserId,
   isPetugasKeamananOnly,
   authenticateUser,
   authorizeRole,

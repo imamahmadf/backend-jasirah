@@ -53,6 +53,8 @@ const dashboardControllers = require("./DashboardControllers");
 const stockOpnameTankiControllers = require("./stockOpnameTankiControllers");
 const laporanKPBPNControllers = require("./laporanKPBPNControllers");
 const asetControllers = require("./asetControllers");
+const pengajuanBarjasKpbpnControllers = require("./pengajuanBarjasKpbpnControllers");
+const barangJasaKpbpnControllers = require("./barangJasaKpbpnControllers");
 module.exports = {
   perjalananControllers,
   pegawaiControllers,
@@ -108,4 +110,6 @@ module.exports = {
   stockOpnameTankiControllers,
   laporanKPBPNControllers,
   asetControllers,
+  pengajuanBarjasKpbpnControllers,
+  barangJasaKpbpnControllers,
 };

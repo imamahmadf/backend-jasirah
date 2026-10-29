@@ -7,6 +7,7 @@ const JENIS_DOKUMEN = [
   "BABongkar",
   "suratJalan",
   "konfirmasiPenerimaan",
+  "pengajuanBarjas",
 ];
 const STATUS_VALUES = ["aktif", "nonaktif"];
 

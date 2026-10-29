@@ -21,6 +21,15 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "userLabId",
         as: "konfirmasiPenerimaanLab",
       });
+      this.hasMany(models.pengajuanBarjasKpbpn, { foreignKey: "pemohonId" });
+      this.hasMany(models.pengajuanBarjasKpbpn, {
+        foreignKey: "mengetahuiId",
+        as: "pengajuanDiketahui",
+      });
+      this.hasMany(models.pengajuanBarjasKpbpn, {
+        foreignKey: "menyetujuiId",
+        as: "pengajuanDisetujui",
+      });
     }
   }
   userKPBPN.init(

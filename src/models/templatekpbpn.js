@@ -14,6 +14,7 @@ module.exports = (sequelize, DataTypes) => {
         "BABongkar",
         "suratJalan",
         "konfirmasiPenerimaan",
+        "pengajuanBarjas",
       ),
       template: DataTypes.STRING,
       status: DataTypes.ENUM("aktif", "nonaktif"),

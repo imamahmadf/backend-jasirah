@@ -5,6 +5,10 @@ const {
   asalMinyak,
   nomorUrutSuratJalanAsal,
 } = require("../models");
+const {
+  ID_TEMPLATE_PENGAJUAN,
+  susunNomorPengajuan,
+} = require("../lib/nomorPengajuanKpbpn");
 
 const parseNomorUrut = (value) => {
   const parsed = parseInt(value, 10);
@@ -17,6 +21,7 @@ const parseNomorUrut = (value) => {
 const labelNomorSurat = (item) => {
   if (item.id === 1) return "Surat Jalan";
   if (item.id === 2) return "BAST";
+  if (item.id === 3) return "Pengajuan Barang & Jasa";
   return item.nomor || `Nomor #${item.id}`;
 };
 
@@ -100,10 +105,26 @@ module.exports = {
       }
 
       return res.status(200).json({
-        resultNomorSurat: resultNomorSurat.map((item) => ({
-          ...item.toJSON(),
-          label: labelNomorSurat(item),
-        })),
+        resultNomorSurat: resultNomorSurat.map((item) => {
+          const data = item.toJSON();
+          const nomorUrut = parseInt(data.nomorUrut, 10) || 0;
+          const hasil = {
+            ...data,
+            label: labelNomorSurat(data),
+            nomorUrut,
+          };
+          if (Number(data.id) === ID_TEMPLATE_PENGAJUAN) {
+            const sekarang = new Date();
+            const tanggal = `${sekarang.getFullYear()}-${String(sekarang.getMonth() + 1).padStart(2, "0")}-${String(sekarang.getDate()).padStart(2, "0")}`;
+            hasil.nomorBerikutnya = nomorUrut + 1;
+            hasil.contohBerikutnya = susunNomorPengajuan(
+              data.nomor,
+              nomorUrut + 1,
+              tanggal,
+            );
+          }
+          return hasil;
+        }),
         resultMitra: resultMitra.map(mapMitraNomorUrut),
         resultNomorUrutSuratJalan,
       });
@@ -131,15 +152,42 @@ module.exports = {
         });
       }
 
-      await nomorSuratKPBPN.update({ nomorUrut }, { where: { id } });
+      const perubahan = { nomorUrut };
+      if (Number(id) === ID_TEMPLATE_PENGAJUAN && req.body.nomor != null) {
+        const pola = String(req.body.nomor || "").trim();
+        if (!pola.includes("NOMOR")) {
+          return res.status(400).json({
+            error: "Format nomor wajib memuat kata NOMOR",
+          });
+        }
+        if (pola.length > 255) {
+          return res.status(400).json({ error: "Format nomor terlalu panjang" });
+        }
+        perubahan.nomor = pola;
+      }
+
+      await existing.update(perubahan);
 
       const result = await nomorSuratKPBPN.findByPk(id);
+      const sekarang = new Date();
+      const tanggal = `${sekarang.getFullYear()}-${String(sekarang.getMonth() + 1).padStart(2, "0")}-${String(sekarang.getDate()).padStart(2, "0")}`;
       return res.status(200).json({
-        message: `Nomor urut ${labelNomorSurat(result)} berhasil diperbarui`,
+        message:
+          Number(id) === ID_TEMPLATE_PENGAJUAN
+            ? "Nomor pengajuan berhasil diperbarui"
+            : `Nomor urut ${labelNomorSurat(result)} berhasil diperbarui`,
         result: {
           ...result.toJSON(),
           label: labelNomorSurat(result),
           nomorBerikutnya: (parseInt(result.nomorUrut, 10) || 0) + 1,
+          contohBerikutnya:
+            Number(id) === ID_TEMPLATE_PENGAJUAN
+              ? susunNomorPengajuan(
+                  result.nomor,
+                  (parseInt(result.nomorUrut, 10) || 0) + 1,
+                  tanggal,
+                )
+              : undefined,
         },
       });
     } catch (err) {
