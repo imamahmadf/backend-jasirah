@@ -7,6 +7,20 @@ const { Client, LocalAuth } = require("whatsapp-web.js");
 const WA_SENDER_NUMBER = process.env.WA_SENDER_NUMBER || "08175101951";
 const QR_FILE_PATH = path.join(__dirname, "../public/wa-qr.png");
 
+const resolveChromePath = () => {
+  const candidates = [
+    process.env.WA_CHROME_PATH,
+    process.platform === "win32"
+      ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+      : "/usr/bin/google-chrome",
+    process.platform === "win32"
+      ? "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+      : "/usr/bin/chromium-browser",
+  ].filter(Boolean);
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+};
+
 let client;
 let clientReady = false;
 let hasQr = false;
@@ -82,8 +96,14 @@ const initWaClient = () => {
 
   resetReadyPromise();
 
+  const chromePath = resolveChromePath();
   console.log(
     `🔄 Menghubungkan WhatsApp pengirim ${WA_SENDER_NUMBER}...`,
+  );
+  console.log(
+    chromePath
+      ? `   Browser: ${chromePath}`
+      : "   Browser bawaan library (Chrome sistem tidak ditemukan)",
   );
   console.log("   QR akan tersedia di http://localhost:8000/api/wa/qr");
 
@@ -91,11 +111,14 @@ const initWaClient = () => {
     authStrategy: new LocalAuth({ clientId: getSenderClientId() }),
     puppeteer: {
       headless: true,
+      ...(chromePath ? { executablePath: chromePath } : {}),
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
+        "--disable-features=IsolateOrigins,site-per-process,MemorySaverMode",
+        "--memory-pressure-off",
       ],
     },
   });
@@ -113,6 +136,47 @@ const initWaClient = () => {
 
   client.on("authenticated", () => {
     console.log("🔐 WhatsApp terautentikasi, menunggu client siap...");
+    const cobaLanjut = async (percobaan) => {
+      if (clientReady || !client.pupPage || percobaan > 6) return;
+      try {
+        const info = await client.pupPage.evaluate(() => {
+          const buttons = [
+            ...document.querySelectorAll("button, div[role='button']"),
+          ];
+          const lanjut = buttons.find((el) =>
+            /^(gunakan di sini|use here|lanjut|continue)$/i.test(
+              (el.innerText || "").trim(),
+            ),
+          );
+          if (lanjut) lanjut.click();
+          return {
+            diklik: Boolean(lanjut),
+            teks: (document.body?.innerText || "")
+              .replace(/\s+/g, " ")
+              .slice(0, 300),
+          };
+        });
+        if (info.diklik) {
+          console.log(
+            "➡️ Tombol lanjut WhatsApp Web diklik, menunggu client siap...",
+          );
+        } else if (percobaan === 6) {
+          console.warn(
+            "⚠️ WhatsApp belum siap. Isi halaman:",
+            info.teks || "(kosong)",
+          );
+        }
+      } catch (err) {
+        if (percobaan === 6) {
+          console.warn(
+            "⚠️ WhatsApp belum siap. Halaman tidak terbaca:",
+            err.message,
+          );
+        }
+      }
+      setTimeout(() => cobaLanjut(percobaan + 1), 5000);
+    };
+    setTimeout(() => cobaLanjut(1), 5000);
   });
 
   client.on("loading_screen", (percent, message) => {
@@ -168,7 +232,7 @@ const initWaClient = () => {
   client.initialize().catch((err) => {
     clientReady = false;
     readyResolve(false);
-    console.error("❌ Gagal inisialisasi WhatsApp:", err.message);
+    console.error("❌ Gagal inisialisasi WhatsApp:", err?.message || err);
   });
 
   return client;

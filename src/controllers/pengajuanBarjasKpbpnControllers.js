@@ -10,6 +10,7 @@ const {
 const { ROLE_KPBPN, getKpbpnRoleIds } = require("../lib/auth");
 const { estimasiTerbaruMap } = require("./barangJasaKpbpnControllers");
 const { buatNomorPengajuan } = require("../lib/nomorPengajuanKpbpn");
+const { sendMessage } = require("../services/waServices");
 const {
   selaraskanStokPengajuan,
   STATUS_MASUK_STOK,
@@ -251,6 +252,48 @@ const keSeribu = (value) => {
   return Math.round(number * 1000);
 };
 
+const NOMOR_NOTIF_PENGAJUAN =
+  process.env.WA_NOTIF_PENGAJUAN || "08175101951";
+
+const kirimNotifPengajuanBaru = async (pengajuan) => {
+  const tanggalStr = pengajuan.tanggal
+    ? new Date(`${pengajuan.tanggal}T00:00:00`).toLocaleDateString("id-ID", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "-";
+  const message = [
+    "📋 *Notifikasi Pengajuan Barang & Jasa*",
+    "",
+    "Pengajuan baru telah dibuat:",
+    "",
+    `• Nomor: ${pengajuan.nomor}`,
+    `• Tanggal: ${tanggalStr}`,
+    `• Jenis: ${pengajuan.jenis}`,
+    `• Level: ${pengajuan.level}`,
+    pengajuan.pemohon ? `• Pemohon: ${pengajuan.pemohon}` : null,
+    `• Keperluan: ${pengajuan.keperluan}`,
+    "",
+    "_Pesan otomatis dari sistem Jasirah Diza Berjaya_",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const waResult = await sendMessage(NOMOR_NOTIF_PENGAJUAN, message);
+  if (waResult.queued) {
+    console.log(
+      `📋 WA pengajuan ${pengajuan.nomor} masuk antrian ke ${NOMOR_NOTIF_PENGAJUAN}`,
+    );
+  } else if (!waResult.success) {
+    console.warn(
+      `Gagal kirim WA pengajuan ${pengajuan.nomor}:`,
+      waResult.error,
+    );
+  }
+};
+
 const bolehKelolaData = (req) => {
   const roleIds = getKpbpnRoleIds(req);
   return (
@@ -482,11 +525,24 @@ module.exports = {
       const result = await pengajuanBarjasKpbpn.findByPk(created.id, {
         include: includeDetail,
       });
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: "Pengajuan berhasil dibuat",
         result,
       });
+      setImmediate(() => {
+        kirimNotifPengajuanBaru({
+          nomor: result.nomor,
+          tanggal: result.tanggal,
+          jenis: result.jenis,
+          level: result.level,
+          keperluan: result.keperluan,
+          pemohon: result.userKPBPN?.nama,
+        }).catch((err) => {
+          console.error("Gagal menyiapkan notifikasi pengajuan:", err);
+        });
+      });
+      return;
     } catch (err) {
       if (!transaction.finished) await transaction.rollback();
       Object.values(fotoMap).forEach(hapusFile);
