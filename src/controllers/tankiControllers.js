@@ -1870,23 +1870,50 @@ module.exports = {
       }
 
       const sumurIds = normalizedItems.map((item) => item.sumurMinyakId);
-      const [sumurMilikMitra, produksiTersimpan] = await Promise.all([
-        sumurIdsUntukPeriodeMitra(entriMitraDariBA(bak3sData.BABongkar), {
-          termasukHariMulai: true,
-        }),
-        produksiSumurK3S.findAll({
-          attributes: ["sumurMinyakId"],
-          where: { BAK3SId: parsedBAK3SId },
-        }),
-      ]);
-      const allowedSumurIds = new Set([
-        ...sumurMilikMitra,
-        ...produksiTersimpan.map((row) => row.sumurMinyakId),
-      ]);
+      const suratJalanIds = collectSuratJalanIdsFromBA(bak3sData.BABongkar);
+      const [sumurMilikMitra, produksiTersimpan, produksiSumber] =
+        await Promise.all([
+          sumurIdsUntukPeriodeMitra(entriMitraDariBA(bak3sData.BABongkar), {
+            termasukHariMulai: true,
+          }),
+          produksiSumurK3S.findAll({
+            attributes: ["sumurMinyakId"],
+            where: { BAK3SId: parsedBAK3SId },
+          }),
+          suratJalanIds.length
+            ? produksiSumur.findAll({
+                attributes: ["sumurMinyakId"],
+                where: { suratJalanId: suratJalanIds },
+              })
+            : [],
+        ]);
+      const allowedSumurIds = new Set(
+        [
+          ...sumurMilikMitra,
+          ...produksiTersimpan.map((row) => row.sumurMinyakId),
+          ...produksiSumber.map((row) => row.sumurMinyakId),
+        ]
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      );
 
-      if (sumurIds.some((sumurId) => !allowedSumurIds.has(sumurId))) {
+      const invalidSumurIds = sumurIds.filter(
+        (sumurId) => !allowedSumurIds.has(sumurId),
+      );
+      if (invalidSumurIds.length) {
+        const sumurRows = await sumurMinyak.findAll({
+          attributes: ["id", "nama", "nomor"],
+          where: { id: invalidSumurIds },
+        });
+        const sumurById = new Map(sumurRows.map((row) => [row.id, row]));
+
         return res.status(400).json({
           error: "Terdapat sumur minyak yang tidak valid untuk mitra terkait",
+          sumurTidakValid: invalidSumurIds.map((id) => ({
+            id,
+            nama: sumurById.get(id)?.nama || null,
+            nomor: sumurById.get(id)?.nomor || null,
+          })),
         });
       }
 

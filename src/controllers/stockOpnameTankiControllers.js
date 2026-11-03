@@ -131,20 +131,14 @@ const toDateKey = (value) => {
 };
 
 const buildDateRange = (startDate, endDate) => {
+  const startKey = toDateKey(startDate);
+  const endKey = toDateKey(endDate);
+  if (!startKey && !endKey) return null;
+
   const range = {};
-  if (startDate) {
-    const startKey = toDateKey(startDate);
-    if (startKey) {
-      range[Op.gte] = new Date(`${startKey}T00:00:00.000`);
-    }
-  }
-  if (endDate) {
-    const endKey = toDateKey(endDate);
-    if (endKey) {
-      range[Op.lte] = new Date(`${endKey}T23:59:59.999`);
-    }
-  }
-  return Object.keys(range).length ? range : null;
+  if (startKey) range[Op.gte] = `${startKey} 00:00:00`;
+  if (endKey) range[Op.lte] = `${endKey} 23:59:59`;
+  return range;
 };
 
 const getDayRange = (dateValue) => {
@@ -237,7 +231,7 @@ const fetchRelatedMutasi = async ({ startDate, endDate, tankiIds }) => {
 
   if (endKey) {
     pengisianWhere.tanggal = {
-      [Op.lte]: new Date(`${endKey}T23:59:59.999`),
+      [Op.lte]: `${endKey} 23:59:59`,
     };
   }
   if (dateRange) {

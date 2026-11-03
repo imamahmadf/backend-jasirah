@@ -1641,6 +1641,170 @@ module.exports = {
     }
   },
 
+  deleteKonfirmasiPenerimaan: async (req, res) => {
+    if (
+      rejectPetugasKeamanan(
+        req,
+        res,
+        "Petugas Keamanan tidak dapat menghapus konfirmasi penerimaan",
+      )
+    ) {
+      return;
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      return res
+        .status(400)
+        .json({ error: "ID konfirmasi penerimaan tidak valid" });
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      const existing = await konfirmasiPenerimaan.findByPk(id, {
+        include: [
+          { model: pengisianTanki, attributes: ["id"] },
+          {
+            model: suratJalan,
+            attributes: ["id", "nomor", "statusSuratJalanId"],
+          },
+        ],
+        transaction,
+      });
+
+      if (!existing) {
+        await transaction.rollback();
+        return res
+          .status(404)
+          .json({ error: "Konfirmasi penerimaan tidak ditemukan" });
+      }
+
+      if ((existing.pengisianTankis || []).length > 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error:
+            "Konfirmasi penerimaan sudah digunakan pada pengisian tanki dan tidak dapat dihapus",
+        });
+      }
+
+      const hapusTiba = String(req.body?.jenis || "").toLowerCase() === "tiba";
+      const fotoLabLama = existing.fotoLab;
+      const fotoKedatangan = existing.foto;
+      const nomorLama = existing.nomor;
+
+      if (hapusTiba) {
+        const statusId = existing.suratJalan?.statusSuratJalanId;
+        const kembalikanKirim = [3, 5, 6].includes(statusId);
+
+        await sequelize.query(
+          "DELETE FROM pengisianTankiKonfirmasis WHERE konfirmasiPenerimaanId = :id",
+          {
+            replacements: { id },
+            transaction,
+          },
+        );
+
+        await konfirmasiPenerimaan.destroy({
+          where: { id },
+          transaction,
+        });
+
+        if (kembalikanKirim && existing.suratJalanId) {
+          await suratJalan.update(
+            { statusSuratJalanId: 2 },
+            { where: { id: existing.suratJalanId }, transaction },
+          );
+        }
+
+        await transaction.commit();
+
+        deleteKonfirmasiFoto(fotoKedatangan);
+        deleteKonfirmasiFoto(fotoLabLama);
+
+        try {
+          const io = req.app.get("socketio");
+          await notifyDashboardChange(io, {
+            type: "konfirmasi:deleted",
+            title: "Data Kendaraan Tiba Dihapus",
+            description: kembalikanKirim
+              ? `Data kendaraan tiba ${nomorLama || `#${id}`} dihapus. Status surat jalan dikembalikan ke KIRIM`
+              : `Data kendaraan tiba ${nomorLama || `#${id}`} dihapus`,
+            entity: "konfirmasiPenerimaan",
+            entityId: id,
+          });
+        } catch (notifyErr) {
+          console.error(
+            "Gagal mengirim notifikasi hapus kendaraan tiba:",
+            notifyErr,
+          );
+        }
+
+        return res.status(200).json({
+          success: true,
+          message: kembalikanKirim
+            ? "Data kendaraan tiba berhasil dihapus. Status surat jalan dikembalikan ke KIRIM"
+            : "Data kendaraan tiba berhasil dihapus",
+        });
+      }
+
+      await existing.update(
+        {
+          nomor: null,
+          volume: null,
+          tinggiCairan: null,
+          volumeAir: null,
+          volumeAkhir: null,
+          SG: null,
+          satuanVolumeId: null,
+          catatan: null,
+          api: null,
+          BSNW: null,
+          fotoLab: null,
+          userLabId: null,
+        },
+        { transaction },
+      );
+
+      if (existing.suratJalanId) {
+        await suratJalan.update(
+          { statusSuratJalanId: 3 },
+          { where: { id: existing.suratJalanId }, transaction },
+        );
+      }
+
+      await transaction.commit();
+
+      deleteKonfirmasiFoto(fotoLabLama);
+
+      try {
+        const io = req.app.get("socketio");
+        await notifyDashboardChange(io, {
+          type: "konfirmasi:deleted",
+          title: "Konfirmasi Penerimaan Dihapus",
+          description: `Konfirmasi penerimaan ${nomorLama || `#${id}`} dihapus. Status surat jalan dikembalikan ke TIBA`,
+          entity: "konfirmasiPenerimaan",
+          entityId: id,
+        });
+      } catch (notifyErr) {
+        console.error(
+          "Gagal mengirim notifikasi hapus konfirmasi:",
+          notifyErr,
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Data konfirmasi penerimaan berhasil dihapus. Status surat jalan dikembalikan ke TIBA",
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   cetakBeritaAcaraPengukuran: async (req, res) => {
     const id = parseInt(req.params.id, 10);
 

@@ -42,6 +42,10 @@ routers.post(
   konfirmasiFotoUploader,
   pengirimanControllers.editKonfirmasiPenerimaan,
 );
+routers.post(
+  "/delete/konfirmasi/:id",
+  pengirimanControllers.deleteKonfirmasiPenerimaan,
+);
 routers.get(
   "/get/produksi-sumur/:suratJalanId",
   pengirimanControllers.getProduksiSumurBySuratJalan,
