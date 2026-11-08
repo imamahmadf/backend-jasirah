@@ -82,8 +82,8 @@ async function siapkanFoto(relPath) {
       .png()
       .toBuffer();
     const meta = await sharp(png).metadata();
-    const maxWidth = 92;
-    const maxHeight = 92;
+    const maxWidth = 80;
+    const maxHeight = 80;
     const width = meta.width || maxWidth;
     const height = meta.height || maxHeight;
     const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
@@ -146,11 +146,45 @@ function pastikanTempatFoto(zip) {
     );
     xml = kepala + ekor;
   }
-  if (!xml.includes("{%foto}")) {
+  if (!xml.includes("{%foto}") && !xml.includes("{#items}")) {
     xml = xml.replace(
       "<w:sectPr>",
       `<w:p><w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>Foto item</w:t></w:r></w:p><w:p><w:r><w:t>{#items}{no}. {uraian}</w:t></w:r></w:p><w:p><w:r><w:t>{#adaFoto}</w:t></w:r></w:p><w:p><w:r><w:t>{%foto}</w:t></w:r></w:p><w:p><w:r><w:t>{/adaFoto}</w:t></w:r></w:p><w:p><w:r><w:t>{^adaFoto}Tidak ada foto{/adaFoto}</w:t></w:r></w:p><w:p><w:r><w:t>{/items}</w:t></w:r></w:p><w:sectPr>`,
     );
+  }
+  zip.file("word/document.xml", xml);
+}
+
+function rapikanIdentitasGambar(zip) {
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) return;
+  let xml = documentFile.asText();
+  let urut = 0;
+  xml = xml.replace(/<wp:docPr id="\d+" name="[^"]*"/g, () => {
+    urut += 1;
+    return `<wp:docPr id="${urut}" name="Gambar ${urut}"`;
+  });
+  zip.file("word/document.xml", xml);
+}
+
+function sisipkanBarcode(zip) {
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) return;
+  let xml = documentFile.asText();
+  if (xml.includes("{%barcode}")) return;
+
+  const blok =
+    `<w:p><w:r><w:t>{#adaQr}</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>QR Code</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:t>{%barcode}</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>Pindai untuk memeriksa keaslian. QR Code tercetak saat status Disetujui atau Selesai.</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:t>{/adaQr}</w:t></w:r></w:p>`;
+  const token = "<w:sectPr";
+  const index = xml.lastIndexOf(token);
+  if (index >= 0) {
+    xml = xml.slice(0, index) + blok + xml.slice(index);
+  } else {
+    xml = xml.replace("</w:body>", `${blok}</w:body>`);
   }
   zip.file("word/document.xml", xml);
 }
@@ -205,8 +239,11 @@ async function buildPengajuanRenderData(record) {
 
         return {
           no: String(index + 1),
+          nama: item.nama || "-",
+          spesifikasi: item.spesifikasi || "-",
           uraian: uraian || "-",
-          jumlah: `${formatJumlah(item.jumlah)} ${item.satuan || ""}`.trim(),
+          jumlah: formatJumlah(item.jumlah),
+          satuan: item.satuan || "-",
           keterangan: item.keterangan || "-",
           estimasi: adaEstimasiItem ? formatRupiah(item.estimasiHarga) : "-",
           subtotalEstimasi:
@@ -225,7 +262,7 @@ async function buildPengajuanRenderData(record) {
   };
 }
 
-async function buildPengajuanDocxFromRecord(record, templatePath) {
+async function buildPengajuanDocxFromRecord(record, templatePath, barcodeDataUrl) {
   if (!templatePath || !fs.existsSync(templatePath)) {
     throw new Error(
       "Template pengajuan aktif tidak ditemukan. Unggah dan aktifkan template pada menu Template Dokumen KPBPN.",
@@ -235,13 +272,21 @@ async function buildPengajuanDocxFromRecord(record, templatePath) {
   const content = fs.readFileSync(templatePath, "binary");
   const zip = new PizZip(content);
   pastikanTempatFoto(zip);
+  if (barcodeDataUrl) sisipkanBarcode(zip);
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
     modules: [createImageModule()],
   });
 
-  doc.render(await buildPengajuanRenderData(record));
+  const data = await buildPengajuanRenderData(record);
+  data.adaQr = Boolean(barcodeDataUrl);
+  if (barcodeDataUrl) {
+    ukuranFoto.set(barcodeDataUrl, [150, 150]);
+    data.barcode = barcodeDataUrl;
+  }
+  doc.render(data);
+  rapikanIdentitasGambar(doc.getZip());
   return doc.getZip().generate({ type: "nodebuffer" });
 }
 

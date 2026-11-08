@@ -7,6 +7,10 @@ const routers = express.Router();
 routers.get("/public/:kode", pengirimanControllers.getSuratJalanByVerifikasi);
 routers.get("/get", pengirimanControllers.getSuratJalan);
 routers.get(
+  "/get/kendaraan-operasional",
+  pengirimanControllers.getKendaraanOperasional,
+);
+routers.get(
   "/get/daftar-konfirmasi",
   pengirimanControllers.getDaftarKonfirmasiPenerimaan,
 );

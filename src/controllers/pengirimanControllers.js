@@ -447,6 +447,88 @@ module.exports = {
     }
   },
 
+  getKendaraanOperasional: async (req, res) => {
+    const STATUS_KIRIM = 2;
+    const STATUS_TIBA = 3;
+    const STATUS_BONGKAR = 5;
+
+    try {
+      const rows = await suratJalan.findAll({
+        where: {
+          statusSuratJalanId: {
+            [Op.in]: [STATUS_KIRIM, STATUS_TIBA, STATUS_BONGKAR],
+          },
+        },
+        attributes: {
+          include: [
+            [
+              sequelize.literal(`(
+                SELECT COUNT(*)
+                FROM konfirmasiPenerimaans AS kp
+                INNER JOIN pengisianTankiKonfirmasis AS ptk
+                  ON ptk.konfirmasiPenerimaanId = kp.id
+                WHERE kp.suratJalanId = \`suratJalan\`.\`id\`
+              )`),
+              "jumlahPengisianTanki",
+            ],
+          ],
+        },
+        order: [
+          ["tanggal", "DESC"],
+          ["id", "DESC"],
+        ],
+        include: [
+          { model: transportir, attributes: ["id", "plat"] },
+          { model: supir, attributes: ["id", "nama"] },
+          { model: mitra, attributes: ["id", "nama"] },
+          { model: stasiunPengumpulMinyak, attributes: ["id", "nama"] },
+          { model: satuanVolume, attributes: ["id", "satuan"] },
+          { model: statusSuratJalan, attributes: ["id", "status"] },
+        ],
+      });
+
+      const dalamPerjalanan = [];
+      const tiba = [];
+      const bongkar = [];
+
+      rows.forEach((row) => {
+        const item = {
+          id: row.id,
+          nomor: row.nomor,
+          tanggal: row.tanggal,
+          volume: row.volume,
+          satuan: row.satuanVolume?.satuan || null,
+          plat: row.transportir?.plat || null,
+          supir: row.supir?.nama || null,
+          mitra: row.mitra?.nama || null,
+          stasiun: row.stasiunPengumpulMinyak?.nama || null,
+          status: row.statusSuratJalan?.status || null,
+        };
+
+        if (row.statusSuratJalanId === STATUS_KIRIM) {
+          dalamPerjalanan.push(item);
+        } else if (row.statusSuratJalanId === STATUS_TIBA) {
+          tiba.push(item);
+        } else if (
+          row.statusSuratJalanId === STATUS_BONGKAR &&
+          !(Number(row.get("jumlahPengisianTanki")) > 0)
+        ) {
+          bongkar.push(item);
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        dalamPerjalanan,
+        tiba,
+        bongkar,
+      });
+    } catch (err) {
+      console.log(err);
+      res.status(500).json({ error: err.message });
+    }
+  },
+
   getSeed: async (req, res) => {
     try {
       const resultMitra = await mitra.findAll({

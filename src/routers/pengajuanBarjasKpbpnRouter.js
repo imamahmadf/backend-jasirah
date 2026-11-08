@@ -17,6 +17,8 @@ routers.post("/barang-jasa/daftarkan", barangJasaKpbpnControllers.daftarkanDariI
 routers.post("/barang-jasa/edit/:id", barangJasaKpbpnControllers.edit);
 routers.post("/barang-jasa/delete/:id", barangJasaKpbpnControllers.remove);
 routers.post("/barang-jasa", barangJasaKpbpnControllers.create);
+routers.get("/public/:kode", pengajuanBarjasKpbpnControllers.getByKodeQr);
+routers.get("/qrcode/:id", pengajuanBarjasKpbpnControllers.generateQrCode);
 routers.get("/admin/stats", pengajuanBarjasKpbpnControllers.getAdminStats);
 routers.post("/admin/delete-all", pengajuanBarjasKpbpnControllers.deleteAll);
 routers.get("/seed", pengajuanBarjasKpbpnControllers.getSeed);

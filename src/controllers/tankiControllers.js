@@ -37,6 +37,32 @@ const fs = require("fs");
 const path = require("path");
 const Docxtemplater = require("docxtemplater");
 const { formatTanggal, getRomanMonth } = require("../lib/perjalananHelpers");
+const { getActiveTemplateFilePath } = require("../utils/templateKPBPN");
+const { convertDocxToPdf } = require("../utils/docxToPdf");
+
+const HARI_BAST = [
+  "Minggu",
+  "Senin",
+  "Selasa",
+  "Rabu",
+  "Kamis",
+  "Jumat",
+  "Sabtu",
+];
+const BULAN_BAST = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+];
 
 const normalizeJam = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -2592,15 +2618,15 @@ module.exports = {
           kp.volume ??
           kp.suratJalan?.volume ??
           "-",
+        nomorBA: kp.nomor || "-",
       }));
 
-      const templatePath = path.join(
-        __dirname,
-        "../public/BAST/BAST-template.docx",
-      );
-
-      if (!fs.existsSync(templatePath)) {
-        throw new Error("Template BAST tidak ditemukan");
+      const templatePath = await getActiveTemplateFilePath("BAST");
+      if (!templatePath) {
+        return res.status(400).json({
+          message:
+            "Template BAST aktif tidak ditemukan. Unggah dan aktifkan template pada menu Template Dokumen KPBPN.",
+        });
       }
 
       const content = fs.readFileSync(templatePath, "binary");
@@ -2611,15 +2637,22 @@ module.exports = {
         linebreaks: true,
       });
 
+      const tanggalValid = !Number.isNaN(tanggalObj.getTime());
       doc.render({
         nomor: nomorBAST,
-        tanggal: formatTanggal(tanggalSumber),
+        hari: tanggalValid ? HARI_BAST[tanggalObj.getDay()] : "-",
+        tanggal: tanggalValid ? String(tanggalObj.getDate()) : "-",
+        bulan: tanggalValid ? BULAN_BAST[tanggalObj.getMonth()] : "-",
+        tahun: tanggalValid ? String(tanggalObj.getFullYear()) : "-",
         jam:
           formatJamDokumen(dataPengisian.jam) ||
-          tanggalObj.toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          (tanggalValid
+            ? tanggalObj.toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "-"),
+        noTanki: dataPengisian.tanki?.kode || "-",
         beratJenis: dataPengisian.flowMeter ?? "-",
         penampilan: dataPengisian.penampilanVisual ?? "-",
         warna: dataPengisian.warna ?? "-",
@@ -2638,35 +2671,39 @@ module.exports = {
         data,
       });
 
-      const buffer = doc.getZip().generate({ type: "nodebuffer" });
-      const outputFileName = `BAST_${Date.now()}.docx`;
-      const outputPath = path.join(
-        __dirname,
-        "../public/output",
-        outputFileName,
+      const docxBuffer = doc.getZip().generate({ type: "nodebuffer" });
+      const format = String(req.body?.format || req.query?.format || "docx")
+        .trim()
+        .toLowerCase();
+      const isDocx = format === "docx" || format === "doc" || format === "word";
+      const fileBuffer = isDocx ? docxBuffer : await convertDocxToPdf(docxBuffer);
+      const extension = isDocx ? "docx" : "pdf";
+      const safeKode = String(dataPengisian.tanki?.kode || id).replace(
+        /[\\/:*?"<>|]/g,
+        "-",
       );
-
-      if (!fs.existsSync(path.dirname(outputPath))) {
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      }
-
-      fs.writeFileSync(outputPath, buffer);
+      const outputFileName = `BAST_${safeKode}_${Date.now()}.${extension}`;
+      const encodedFileName = encodeURIComponent(outputFileName);
 
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename=${outputFileName}`,
+        `attachment; filename="${outputFileName}"; filename*=UTF-8''${encodedFileName}`,
       );
       res.setHeader(
         "Content-Type",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        isDocx
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : "application/pdf",
       );
 
-      res.send(buffer);
-      fs.unlinkSync(outputPath);
+      return res.send(fileBuffer);
     } catch (err) {
       console.error("Error generating BAST:", err);
       return res.status(500).json({
-        message: err.message || err.toString(),
+        message: String(err.message || err.toString()).replace(
+          /surat jalan/gi,
+          "BAST",
+        ),
         code: 500,
       });
     }

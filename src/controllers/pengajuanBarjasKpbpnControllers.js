@@ -10,6 +10,8 @@ const {
 const { ROLE_KPBPN, getKpbpnRoleIds } = require("../lib/auth");
 const { estimasiTerbaruMap } = require("./barangJasaKpbpnControllers");
 const { buatNomorPengajuan } = require("../lib/nomorPengajuanKpbpn");
+const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
+const { buildFrontendPathUrl } = require("../lib/frontendBaseUrl");
 const { sendMessage } = require("../services/waServices");
 const {
   selaraskanStokPengajuan,
@@ -138,6 +140,77 @@ const includeDetail = [
     order: [["id", "ASC"]],
   },
 ];
+
+const STATUS_BARCODE = new Set(["Disetujui", "Diproses", "Selesai"]);
+
+const createKodeQr = () =>
+  (
+    Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
+  ).toUpperCase();
+
+const ensureKodeQr = async (pengajuan, transaction) => {
+  if (pengajuan.kodeQr) return pengajuan.kodeQr;
+
+  let kodeQr = createKodeQr();
+  let exists = await pengajuanBarjasKpbpn.findOne({
+    where: { kodeQr },
+    transaction,
+  });
+  while (exists) {
+    kodeQr = createKodeQr();
+    exists = await pengajuanBarjasKpbpn.findOne({
+      where: { kodeQr },
+      transaction,
+    });
+  }
+
+  await pengajuan.update({ kodeQr }, { transaction });
+  return kodeQr;
+};
+
+const buatQrPengajuan = async (req, kodeQr) => {
+  const qrPath = `/qr-pengajuan/${kodeQr}`;
+  const qrUrl = buildFrontendPathUrl(req, qrPath);
+  const logoPath = path.join(__dirname, "../public/surat-jalan/logoKPBPN.png");
+  const qrDataUrl = await generateQrWithLogo(qrUrl, {
+    sizePx: 400,
+    logoPath,
+    logoScale: 0.3,
+  });
+  return { qrPath, qrUrl, qrDataUrl };
+};
+
+const namaFileBarcode = (pengajuan, kodeQr) => {
+  const nomor = String(pengajuan?.nomor || kodeQr || "pengajuan")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return `Barcode_${nomor}.png`;
+};
+
+const ringkasPengajuanPublik = (record) => {
+  const json = record.toJSON();
+  return {
+    nomor: json.nomor,
+    tanggal: json.tanggal,
+    tanggalDibutuhkan: json.tanggalDibutuhkan,
+    level: json.level,
+    jenis: json.jenis,
+    keperluan: json.keperluan,
+    lokasi: json.lokasi,
+    status: json.statusPengajuanKpbpn?.nama || "-",
+    pemohon: json.userKPBPN?.nama || "-",
+    mengetahui: json.mengetahui?.nama || "-",
+    menyetujui: json.menyetujui?.nama || "-",
+    items: (json.itemPengajuanBarjasKpbpns || []).map((item) => ({
+      nama: item.nama,
+      spesifikasi: item.spesifikasi,
+      jumlah: item.jumlah,
+      satuan: item.satuan,
+      keterangan: item.keterangan,
+    })),
+  };
+};
 
 const bacaIdOpsional = (value, label) => {
   if (value === null || value === undefined || value === "") return null;
@@ -757,6 +830,9 @@ module.exports = {
         },
         { transaction },
       );
+      if (STATUS_BARCODE.has(status.nama)) {
+        await ensureKodeQr(existing, transaction);
+      }
       await selaraskanStokPengajuan(id, transaction);
       await transaction.commit();
 
@@ -770,6 +846,9 @@ module.exports = {
       }
       if (lamaMasuk && !baruMasuk) {
         message += ". Barang ditarik kembali dari stok.";
+      }
+      if (STATUS_BARCODE.has(status.nama) && !STATUS_BARCODE.has(namaLama)) {
+        message += ". QR Code persetujuan sudah dibuat.";
       }
 
       const result = await pengajuanBarjasKpbpn.findByPk(id, {
@@ -1029,6 +1108,66 @@ module.exports = {
     }
   },
 
+  generateQrCode: async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "ID pengajuan tidak valid" });
+
+    try {
+      const result = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: [{ model: statusPengajuanKpbpn, attributes: ["id", "nama"] }],
+      });
+      if (!result) {
+        return res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      }
+      if (!STATUS_BARCODE.has(result.statusPengajuanKpbpn?.nama)) {
+        return res.status(400).json({
+          error: "QR Code tersedia setelah pengajuan disetujui",
+        });
+      }
+
+      const kodeQr = await ensureKodeQr(result);
+      const { qrPath, qrUrl, qrDataUrl } = await buatQrPengajuan(req, kodeQr);
+      return res.status(200).json({
+        success: true,
+        kode: kodeQr,
+        path: qrPath,
+        url: qrUrl,
+        qrCode: qrDataUrl,
+        fileName: namaFileBarcode(result, kodeQr),
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  getByKodeQr: async (req, res) => {
+    const kode = String(req.params.kode || "").trim();
+    if (!kode) {
+      return res.status(400).json({ error: "Kode barcode tidak valid" });
+    }
+
+    try {
+      const result = await pengajuanBarjasKpbpn.findOne({
+        where: { kodeQr: kode },
+        include: includeDetail,
+      });
+      if (!result) {
+        return res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      }
+
+      const status = result.statusPengajuanKpbpn?.nama;
+      return res.status(200).json({
+        success: true,
+        berlaku: STATUS_BARCODE.has(status),
+        result: ringkasPengajuanPublik(result),
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   cetak: async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) {
@@ -1051,9 +1190,20 @@ module.exports = {
         });
       }
 
+      let barcodeDataUrl = null;
+      if (STATUS_BARCODE.has(result.statusPengajuanKpbpn?.nama)) {
+        try {
+          const kodeQr = await ensureKodeQr(result);
+          barcodeDataUrl = (await buatQrPengajuan(req, kodeQr)).qrDataUrl;
+        } catch (err) {
+          console.error("Gagal membuat QR Code pengajuan:", err);
+        }
+      }
+
       const docxBuffer = await buildPengajuanDocxFromRecord(
         result,
         templatePath,
+        barcodeDataUrl,
       );
       const format = String(req.query.format || "pdf").toLowerCase();
       const isDocx = format === "docx" || format === "doc" || format === "word";
