@@ -171,12 +171,13 @@ function sisipkanBarcode(zip) {
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) return;
   let xml = documentFile.asText();
-  if (xml.includes("{%barcode}")) return;
+  // Template sudah punya placeholder gambar QR — jangan sisipkan lagi
+  if (xml.includes("{%qrCode}") || xml.includes("{%barcode}")) return;
 
   const blok =
     `<w:p><w:r><w:t>{#adaQr}</w:t></w:r></w:p>` +
     `<w:p><w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>QR Code</w:t></w:r></w:p>` +
-    `<w:p><w:r><w:t>{%barcode}</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:t>{%qrCode}</w:t></w:r></w:p>` +
     `<w:p><w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>Pindai untuk memeriksa keaslian. QR Code tercetak saat status Disetujui atau Selesai.</w:t></w:r></w:p>` +
     `<w:p><w:r><w:t>{/adaQr}</w:t></w:r></w:p>`;
   const token = "<w:sectPr";
@@ -283,6 +284,9 @@ async function buildPengajuanDocxFromRecord(record, templatePath, barcodeDataUrl
   data.adaQr = Boolean(barcodeDataUrl);
   if (barcodeDataUrl) {
     ukuranFoto.set(barcodeDataUrl, [150, 150]);
+    // Placeholder di template Word: {%qrCode}
+    data.qrCode = barcodeDataUrl;
+    // Kompatibilitas template lama yang masih memakai {%barcode}
     data.barcode = barcodeDataUrl;
   }
   doc.render(data);
