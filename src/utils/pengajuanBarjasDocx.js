@@ -7,6 +7,16 @@ const sharp = require("sharp");
 
 const PUBLIC_ROOT = path.resolve(__dirname, "../public");
 const ukuranFoto = new Map();
+const PNG_KOSONG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X9lNwAAAAASUVORK5CYII=",
+  "base64",
+);
+const TEKS_QR_Sisipan = [
+  "{#adaQr}",
+  "{/adaQr}",
+  "{%barcode}",
+  "Pindai untuk memeriksa keaslian",
+];
 
 const BULAN = [
   "Januari",
@@ -99,15 +109,50 @@ async function siapkanFoto(relPath) {
   }
 }
 
+function teksTanpaXml(xml) {
+  return String(xml || "").replace(/<[^>]+>/g, "");
+}
+
+function hapusParagrafQrSisipan(xml) {
+  return String(xml || "").replace(/<w:p\b[\s\S]*?<\/w:p>/g, (paragraf) => {
+    const teks = teksTanpaXml(paragraf);
+    if (TEKS_QR_Sisipan.some((token) => teks.includes(token))) return "";
+    return paragraf;
+  });
+}
+
+function buangQrSelainPlaceholder(zip) {
+  Object.keys(zip.files).forEach((nama) => {
+    if (!/^word\/(document|header\d+|footer\d+)\.xml$/.test(nama)) return;
+    const file = zip.file(nama);
+    if (!file) return;
+    zip.file(nama, hapusParagrafQrSisipan(file.asText()));
+  });
+}
+
+function templatePunyaQrCode(zip) {
+  return Object.keys(zip.files).some((nama) => {
+    if (!/^word\/(document|header\d+|footer\d+)\.xml$/.test(nama)) return false;
+    const file = zip.file(nama);
+    return Boolean(file && teksTanpaXml(file.asText()).includes("{%qrCode}"));
+  });
+}
+
 function createImageModule() {
   return new ImageModule({
     getImage(tagValue) {
       if (typeof tagValue !== "string" || !tagValue.startsWith("data:image/")) {
-        return Buffer.alloc(0);
+        return PNG_KOSONG;
       }
       return Buffer.from(tagValue.slice(tagValue.indexOf(",") + 1), "base64");
     },
-    getSize(_img, tagValue) {
+    getSize(_img, tagValue, tagName) {
+      if (tagName !== "qrCode" && tagName !== "foto") {
+        return [1, 1];
+      }
+      if (typeof tagValue !== "string" || !tagValue.startsWith("data:image/")) {
+        return [1, 1];
+      }
       return ukuranFoto.get(tagValue) || [92, 92];
     },
   });
@@ -164,29 +209,6 @@ function rapikanIdentitasGambar(zip) {
     urut += 1;
     return `<wp:docPr id="${urut}" name="Gambar ${urut}"`;
   });
-  zip.file("word/document.xml", xml);
-}
-
-function sisipkanBarcode(zip) {
-  const documentFile = zip.file("word/document.xml");
-  if (!documentFile) return;
-  let xml = documentFile.asText();
-  // Template sudah punya placeholder gambar QR — jangan sisipkan lagi
-  if (xml.includes("{%qrCode}") || xml.includes("{%barcode}")) return;
-
-  const blok =
-    `<w:p><w:r><w:t>{#adaQr}</w:t></w:r></w:p>` +
-    `<w:p><w:r><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr><w:t>QR Code</w:t></w:r></w:p>` +
-    `<w:p><w:r><w:t>{%qrCode}</w:t></w:r></w:p>` +
-    `<w:p><w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr><w:t>Pindai untuk memeriksa keaslian. QR Code tercetak saat status Disetujui atau Selesai.</w:t></w:r></w:p>` +
-    `<w:p><w:r><w:t>{/adaQr}</w:t></w:r></w:p>`;
-  const token = "<w:sectPr";
-  const index = xml.lastIndexOf(token);
-  if (index >= 0) {
-    xml = xml.slice(0, index) + blok + xml.slice(index);
-  } else {
-    xml = xml.replace("</w:body>", `${blok}</w:body>`);
-  }
   zip.file("word/document.xml", xml);
 }
 
@@ -272,8 +294,9 @@ async function buildPengajuanDocxFromRecord(record, templatePath, barcodeDataUrl
 
   const content = fs.readFileSync(templatePath, "binary");
   const zip = new PizZip(content);
+  buangQrSelainPlaceholder(zip);
   pastikanTempatFoto(zip);
-  if (barcodeDataUrl) sisipkanBarcode(zip);
+  const punyaQrCode = templatePunyaQrCode(zip);
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
     linebreaks: true,
@@ -281,13 +304,9 @@ async function buildPengajuanDocxFromRecord(record, templatePath, barcodeDataUrl
   });
 
   const data = await buildPengajuanRenderData(record);
-  data.adaQr = Boolean(barcodeDataUrl);
-  if (barcodeDataUrl) {
+  if (barcodeDataUrl && punyaQrCode) {
     ukuranFoto.set(barcodeDataUrl, [150, 150]);
-    // Placeholder di template Word: {%qrCode}
     data.qrCode = barcodeDataUrl;
-    // Kompatibilitas template lama yang masih memakai {%barcode}
-    data.barcode = barcodeDataUrl;
   }
   doc.render(data);
   rapikanIdentitasGambar(doc.getZip());
