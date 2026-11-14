@@ -23,6 +23,11 @@ module.exports = (sequelize, DataTypes) => {
       foto: DataTypes.STRING,
       estimasiHarga: DataTypes.BIGINT,
       hargaAktual: DataTypes.BIGINT,
+      statusBeli: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: "belum",
+      },
       pengajuanBarjasKpbpnId: DataTypes.INTEGER,
       barangJasaKpbpnId: DataTypes.INTEGER,
     },

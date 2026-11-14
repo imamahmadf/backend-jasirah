@@ -33,6 +33,8 @@ module.exports = (sequelize, DataTypes) => {
       tanggalDibutuhkan: DataTypes.DATEONLY,
       lokasi: DataTypes.STRING,
       alasanPenolakan: DataTypes.TEXT,
+      waktuSetujuMengetahui: DataTypes.DATE,
+      waktuSetujuMenyetujui: DataTypes.DATE,
       kodeQr: DataTypes.STRING,
       statusPengajuanKpbpnId: DataTypes.INTEGER,
       pemohonId: DataTypes.INTEGER,

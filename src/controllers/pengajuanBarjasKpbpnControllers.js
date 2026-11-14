@@ -7,8 +7,7 @@ const {
   buildPengajuanDocxFromRecord,
   buildPengajuanDownloadBaseName,
 } = require("../utils/pengajuanBarjasDocx");
-const { ROLE_KPBPN, getKpbpnRoleIds } = require("../lib/auth");
-const { estimasiTerbaruMap } = require("./barangJasaKpbpnControllers");
+const { ROLE_KPBPN, getKpbpnRoleIds, getKpbpnUserId } = require("../lib/auth");
 const { buatNomorPengajuan } = require("../lib/nomorPengajuanKpbpn");
 const { generateQrWithLogo } = require("../lib/qrcodeWithLogo");
 const { buildFrontendPathUrl } = require("../lib/frontendBaseUrl");
@@ -102,6 +101,13 @@ const normalisasiItem = (items, fotoMap) => {
       hasil.push({ error: `Jumlah pada baris ${index + 1} harus lebih dari 0` });
       return;
     }
+    const estimasiHarga = parseUang(item?.estimasiHarga);
+    if (estimasiHarga == null || estimasiHarga <= 0) {
+      hasil.push({
+        error: `Estimasi harga pada baris ${index + 1} wajib diisi`,
+      });
+      return;
+    }
 
     hasil.push({
       id: item.id ? parseInt(item.id, 10) : null,
@@ -110,6 +116,7 @@ const normalisasiItem = (items, fotoMap) => {
       jumlah,
       satuan,
       keterangan: keterangan || null,
+      estimasiHarga,
       fotoLama: item.foto || null,
       hapusFoto: Boolean(item.hapusFoto),
       fotoBaru: fotoMap[index] || null,
@@ -142,6 +149,7 @@ const includeDetail = [
 ];
 
 const STATUS_BARCODE = new Set(["Disetujui", "Diproses", "Selesai"]);
+const STATUS_SIAP_BELI = STATUS_BARCODE;
 
 const createKodeQr = () =>
   (
@@ -166,6 +174,41 @@ const ensureKodeQr = async (pengajuan, transaction) => {
 
   await pengajuan.update({ kodeQr }, { transaction });
   return kodeQr;
+};
+
+const selaraskanStatusPembelian = async (pengajuanId, transaction) => {
+  const pengajuan = await pengajuanBarjasKpbpn.findByPk(pengajuanId, {
+    include: [{ model: statusPengajuanKpbpn, attributes: ["id", "nama"] }],
+    transaction,
+  });
+  if (!pengajuan || !STATUS_SIAP_BELI.has(pengajuan.statusPengajuanKpbpn?.nama)) {
+    return;
+  }
+
+  const items = await itemPengajuanBarjasKpbpn.findAll({
+    where: { pengajuanBarjasKpbpnId: pengajuanId },
+    transaction,
+  });
+  const jumlahDibeli = items.filter((item) => item.statusBeli === "dibeli").length;
+  const target =
+    items.length > 0 && jumlahDibeli === items.length
+      ? "Selesai"
+      : jumlahDibeli > 0
+        ? "Diproses"
+        : "Disetujui";
+  if (target === pengajuan.statusPengajuanKpbpn?.nama) return;
+
+  const status = await statusPengajuanKpbpn.findOne({
+    where: { nama: target },
+    transaction,
+  });
+  if (!status) return;
+  await pengajuan.update(
+    { statusPengajuanKpbpnId: status.id },
+    { transaction },
+  );
+  if (STATUS_BARCODE.has(target)) await ensureKodeQr(pengajuan, transaction);
+  await selaraskanStokPengajuan(pengajuanId, transaction);
 };
 
 const buatQrPengajuan = async (req, kodeQr) => {
@@ -224,12 +267,40 @@ const bacaIdOpsional = (value, label) => {
 const pemintaPunyaRole = (req, roleId) =>
   getKpbpnRoleIds(req).includes(Number(roleId));
 
+const bolehInputHarga = (req) =>
+  pemintaPunyaRole(req, ROLE_KPBPN.KEUANGAN) ||
+  pemintaPunyaRole(req, ROLE_KPBPN.GENERAL_AFFAIR);
+
+const bolehUbahStatusItem = (req) =>
+  [
+    ROLE_KPBPN.SUPER_ADMIN,
+    ROLE_KPBPN.ADMIN,
+    ROLE_KPBPN.KEUANGAN,
+    ROLE_KPBPN.GENERAL_AFFAIR,
+  ].some((roleId) => pemintaPunyaRole(req, roleId));
+
 const userMemilikiRole = async (userId, roleId) => {
   const row = await userRoleKPBPN.findOne({
     where: { userKPBPNId: userId, roleKPBPNId: roleId },
     attributes: ["id"],
   });
   return Boolean(row);
+};
+
+const validasiPenandatangan = async (payload) => {
+  const mengetahuiId = bacaIdOpsional(payload.mengetahuiId, "Mengetahui");
+  if (mengetahuiId?.error) return { error: mengetahuiId.error };
+  const menyetujuiId = bacaIdOpsional(payload.menyetujuiId, "Menyetujui");
+  if (menyetujuiId?.error) return { error: menyetujuiId.error };
+  if (!mengetahuiId) return { error: "Mengetahui wajib diisi" };
+  if (!menyetujuiId) return { error: "Menyetujui wajib diisi" };
+  if (!(await userMemilikiRole(mengetahuiId, ROLE_KPBPN.SUPERVISOR))) {
+    return { error: "Mengetahui harus user dengan role Supervisor" };
+  }
+  if (!(await userMemilikiRole(menyetujuiId, ROLE_KPBPN.GENERAL_MANAGER))) {
+    return { error: "Menyetujui harus user dengan role General Manager" };
+  }
+  return { mengetahuiId, menyetujuiId };
 };
 
 const pastikanBarangJasa = async (items, jenis) => {
@@ -275,12 +346,6 @@ const simpanItem = async (pengajuanId, items, transaction) => {
     }
   }
 
-  const itemBaru = items.filter((item) => !item.id && item.barangJasaKpbpnId);
-  const estimasiTerbaru = await estimasiTerbaruMap(
-    itemBaru.map((item) => item.barangJasaKpbpnId),
-    transaction,
-  );
-
   for (const item of items) {
     let foto = item.fotoLama;
     if (item.fotoBaru) {
@@ -297,6 +362,7 @@ const simpanItem = async (pengajuanId, items, transaction) => {
       jumlah: item.jumlah,
       satuan: item.satuan,
       keterangan: item.keterangan,
+      estimasiHarga: item.estimasiHarga,
       foto,
       pengajuanBarjasKpbpnId: pengajuanId,
       barangJasaKpbpnId: item.barangJasaKpbpnId,
@@ -308,13 +374,7 @@ const simpanItem = async (pengajuanId, items, transaction) => {
         transaction,
       });
     } else {
-      const estimasiHarga = item.barangJasaKpbpnId
-        ? (estimasiTerbaru.get(Number(item.barangJasaKpbpnId)) ?? null)
-        : null;
-      await itemPengajuanBarjasKpbpn.create(
-        { ...data, estimasiHarga },
-        { transaction },
-      );
+      await itemPengajuanBarjasKpbpn.create(data, { transaction });
     }
   }
 };
@@ -580,6 +640,11 @@ module.exports = {
       Object.values(fotoMap).forEach(hapusFile);
       return res.status(400).json({ error: cekBarang.error });
     }
+    const penandatangan = await validasiPenandatangan(payload);
+    if (penandatangan.error) {
+      Object.values(fotoMap).forEach(hapusFile);
+      return res.status(400).json({ error: penandatangan.error });
+    }
 
     const transaction = await sequelize.transaction();
     try {
@@ -615,6 +680,8 @@ module.exports = {
           lokasi: String(payload.lokasi || "").trim() || null,
           statusPengajuanKpbpnId: statusAwal.id,
           pemohonId,
+          mengetahuiId: penandatangan.mengetahuiId,
+          menyetujuiId: penandatangan.menyetujuiId,
         },
         { transaction },
       );
@@ -686,6 +753,11 @@ module.exports = {
       Object.values(fotoMap).forEach(hapusFile);
       return res.status(400).json({ error: cekBarang.error });
     }
+    const penandatangan = await validasiPenandatangan(payload);
+    if (penandatangan.error) {
+      Object.values(fotoMap).forEach(hapusFile);
+      return res.status(400).json({ error: penandatangan.error });
+    }
 
     const transaction = await sequelize.transaction();
     try {
@@ -705,6 +777,8 @@ module.exports = {
           catatan: String(payload.catatan || "").trim() || null,
           tanggalDibutuhkan: tanggalOnly(payload.tanggalDibutuhkan),
           lokasi: String(payload.lokasi || "").trim() || null,
+          mengetahuiId: penandatangan.mengetahuiId,
+          menyetujuiId: penandatangan.menyetujuiId,
         },
         { transaction },
       );
@@ -768,6 +842,198 @@ module.exports = {
     }
   },
 
+  getPersetujuan: async (req, res) => {
+    const userId = getKpbpnUserId(req);
+    const roleIds = getKpbpnRoleIds(req);
+    if (!userId) {
+      return res.status(401).json({ error: "Masuk terlebih dahulu" });
+    }
+    const bolehMengetahui = roleIds.includes(ROLE_KPBPN.SUPERVISOR);
+    const bolehMenyetujui = roleIds.includes(ROLE_KPBPN.GENERAL_MANAGER);
+    if (!bolehMengetahui && !bolehMenyetujui) {
+      return res.status(403).json({
+        error: "Persetujuan hanya untuk Supervisor dan General Manager",
+      });
+    }
+
+    const tugas = [];
+    if (bolehMengetahui) tugas.push({ mengetahuiId: userId });
+    if (bolehMenyetujui) tugas.push({ menyetujuiId: userId });
+
+    try {
+      const rows = await pengajuanBarjasKpbpn.findAll({
+        where: { [Op.or]: tugas },
+        include: [
+          {
+            model: statusPengajuanKpbpn,
+            attributes: ["id", "nama"],
+            where: { nama: "Diajukan" },
+            required: true,
+          },
+          ...includePengguna,
+          {
+            model: itemPengajuanBarjasKpbpn,
+            attributes: ["id", "nama", "jumlah", "satuan"],
+            separate: true,
+            order: [["id", "ASC"]],
+          },
+        ],
+        order: [
+          ["level", "DESC"],
+          ["tanggal", "ASC"],
+          ["id", "ASC"],
+        ],
+      });
+
+      const result = rows.map((row) => {
+        const json = row.toJSON();
+        const tugasMengetahui =
+          bolehMengetahui && Number(json.mengetahuiId) === userId;
+        const tugasMenyetujui =
+          bolehMenyetujui && Number(json.menyetujuiId) === userId;
+        return {
+          ...json,
+          tugasMengetahui,
+          tugasMenyetujui,
+          sudahMengetahui: Boolean(json.waktuSetujuMengetahui),
+          sudahMenyetujui: Boolean(json.waktuSetujuMenyetujui),
+          menungguSaya:
+            (tugasMengetahui && !json.waktuSetujuMengetahui) ||
+            (tugasMenyetujui && !json.waktuSetujuMenyetujui),
+        };
+      });
+
+      return res.status(200).json({ success: true, result });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
+  putuskanPersetujuan: async (req, res) => {
+    const userId = getKpbpnUserId(req);
+    const roleIds = getKpbpnRoleIds(req);
+    if (!userId) {
+      return res.status(401).json({ error: "Masuk terlebih dahulu" });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    const keputusan = String(req.body.keputusan || "").trim();
+    const alasanPenolakan = String(req.body.alasanPenolakan || "").trim();
+    if (!id) return res.status(400).json({ error: "ID pengajuan tidak valid" });
+    if (keputusan !== "setuju" && keputusan !== "tolak") {
+      return res.status(400).json({ error: "Keputusan harus setuju atau tolak" });
+    }
+    if (keputusan === "tolak" && !alasanPenolakan) {
+      return res.status(400).json({ error: "Alasan penolakan wajib diisi" });
+    }
+
+    const transaction = await sequelize.transaction();
+    try {
+      const existing = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: [{ model: statusPengajuanKpbpn, attributes: ["id", "nama"] }],
+        transaction,
+      });
+      if (!existing) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      }
+      if (existing.statusPengajuanKpbpn?.nama !== "Diajukan") {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Hanya pengajuan berstatus Diajukan yang dapat diputuskan",
+        });
+      }
+
+      const tugasMengetahui =
+        roleIds.includes(ROLE_KPBPN.SUPERVISOR) &&
+        Number(existing.mengetahuiId) === userId;
+      const tugasMenyetujui =
+        roleIds.includes(ROLE_KPBPN.GENERAL_MANAGER) &&
+        Number(existing.menyetujuiId) === userId;
+      if (!tugasMengetahui && !tugasMenyetujui) {
+        await transaction.rollback();
+        return res.status(403).json({
+          error: "Pengajuan ini tidak menugaskan Anda sebagai penandatangan",
+        });
+      }
+
+      if (keputusan === "tolak") {
+        const ditolak = await statusPengajuanKpbpn.findOne({
+          where: { nama: "Ditolak" },
+          transaction,
+        });
+        if (!ditolak) {
+          throw Object.assign(new Error("Status Ditolak belum tersedia"), {
+            statusCode: 500,
+          });
+        }
+        await existing.update(
+          {
+            statusPengajuanKpbpnId: ditolak.id,
+            alasanPenolakan,
+            waktuSetujuMengetahui: null,
+            waktuSetujuMenyetujui: null,
+          },
+          { transaction },
+        );
+        await selaraskanStokPengajuan(id, transaction);
+        await transaction.commit();
+        const result = await pengajuanBarjasKpbpn.findByPk(id, {
+          include: includeDetail,
+        });
+        return res.status(200).json({
+          success: true,
+          message: "Pengajuan ditolak",
+          result,
+        });
+      }
+
+      const sekarang = new Date();
+      const data = {};
+      if (tugasMengetahui) data.waktuSetujuMengetahui = sekarang;
+      if (tugasMenyetujui) data.waktuSetujuMenyetujui = sekarang;
+      await existing.update(data, { transaction });
+      await existing.reload({ transaction });
+
+      const lengkap =
+        Boolean(existing.waktuSetujuMengetahui) &&
+        Boolean(existing.waktuSetujuMenyetujui);
+      let message =
+        "Persetujuan tercatat. Status berubah menjadi Disetujui setelah Supervisor dan General Manager sama-sama menyetujui.";
+      if (lengkap) {
+        const disetujui = await statusPengajuanKpbpn.findOne({
+          where: { nama: "Disetujui" },
+          transaction,
+        });
+        if (!disetujui) {
+          throw Object.assign(new Error("Status Disetujui belum tersedia"), {
+            statusCode: 500,
+          });
+        }
+        await existing.update(
+          { statusPengajuanKpbpnId: disetujui.id, alasanPenolakan: null },
+          { transaction },
+        );
+        await ensureKodeQr(existing, transaction);
+        await selaraskanStokPengajuan(id, transaction);
+        message = "Pengajuan disetujui. QR Code persetujuan sudah dibuat.";
+      }
+
+      await transaction.commit();
+      const result = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: includeDetail,
+      });
+      return res.status(200).json({ success: true, message, result });
+    } catch (err) {
+      if (!transaction.finished) await transaction.rollback();
+      console.log(err);
+      return res
+        .status(err.statusCode || 500)
+        .json({ error: err.message || "Gagal menyimpan persetujuan" });
+    }
+  },
+
   updateMengetahui: async (req, res) =>
     module.exports.simpanPenandatangan(req, res, {
       roleId: ROLE_KPBPN.SUPERVISOR,
@@ -823,13 +1089,24 @@ module.exports = {
       }
 
       const namaLama = existing.statusPengajuanKpbpn?.nama;
-      await existing.update(
-        {
-          statusPengajuanKpbpnId: status.id,
-          alasanPenolakan: status.nama === "Ditolak" ? alasanPenolakan : null,
-        },
-        { transaction },
-      );
+      const dataStatus = {
+        statusPengajuanKpbpnId: status.id,
+        alasanPenolakan: status.nama === "Ditolak" ? alasanPenolakan : null,
+      };
+      if (
+        namaLama !== status.nama &&
+        (status.nama === "Diajukan" || status.nama === "Ditolak")
+      ) {
+        dataStatus.waktuSetujuMengetahui = null;
+        dataStatus.waktuSetujuMenyetujui = null;
+      }
+      await existing.update(dataStatus, { transaction });
+      if (status.nama === "Diajukan" || status.nama === "Ditolak") {
+        await itemPengajuanBarjasKpbpn.update(
+          { statusBeli: "belum" },
+          { where: { pengajuanBarjasKpbpnId: id }, transaction },
+        );
+      }
       if (STATUS_BARCODE.has(status.nama)) {
         await ensureKodeQr(existing, transaction);
       }
@@ -920,6 +1197,12 @@ module.exports = {
   },
 
   updateHarga: async (req, res) => {
+    if (!bolehInputHarga(req)) {
+      return res.status(403).json({
+        error: "Harga aktual hanya dapat diisi oleh General Affair atau Keuangan",
+      });
+    }
+
     const id = parseInt(req.params.id, 10);
     const items = Array.isArray(req.body.items) ? req.body.items : null;
 
@@ -929,10 +1212,20 @@ module.exports = {
 
     const transaction = await sequelize.transaction();
     try {
-      const existing = await pengajuanBarjasKpbpn.findByPk(id, { transaction });
+      const existing = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: [{ model: statusPengajuanKpbpn, attributes: ["id", "nama"] }],
+        transaction,
+      });
       if (!existing) {
         await transaction.rollback();
         return res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      }
+      if (!STATUS_SIAP_BELI.has(existing.statusPengajuanKpbpn?.nama)) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error:
+            "Harga aktual diisi setelah pengajuan disetujui Supervisor dan General Manager",
+        });
       }
 
       for (const item of items) {
@@ -942,14 +1235,14 @@ module.exports = {
           item.hargaAktual === "" || item.hargaAktual == null
             ? null
             : parseUang(item.hargaAktual);
-        await itemPengajuanBarjasKpbpn.update(
-          { hargaAktual },
-          {
-            where: { id: itemId, pengajuanBarjasKpbpnId: id },
-            transaction,
-          },
-        );
+        const dataHarga = { hargaAktual };
+        if (hargaAktual == null) dataHarga.statusBeli = "belum";
+        await itemPengajuanBarjasKpbpn.update(dataHarga, {
+          where: { id: itemId, pengajuanBarjasKpbpnId: id },
+          transaction,
+        });
       }
+      await selaraskanStatusPembelian(id, transaction);
 
       await transaction.commit();
       const result = await pengajuanBarjasKpbpn.findByPk(id, {
@@ -964,6 +1257,74 @@ module.exports = {
       if (!transaction.finished) await transaction.rollback();
       console.log(err);
       return res.status(500).json({ error: err.message });
+    }
+  },
+
+  updateStatusItem: async (req, res) => {
+    if (!bolehUbahStatusItem(req)) {
+      return res.status(403).json({
+        error: "Status pembelian item diubah oleh pembuat pengajuan, General Affair, atau Keuangan",
+      });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    const itemId = parseInt(req.body.itemId, 10);
+    const statusBeli = String(req.body.statusBeli || "").trim();
+    if (!id || !itemId) {
+      return res.status(400).json({ error: "Item pengajuan tidak valid" });
+    }
+    if (statusBeli !== "belum" && statusBeli !== "dibeli") {
+      return res.status(400).json({ error: "Status item harus belum atau dibeli" });
+    }
+
+    const transaction = await sequelize.transaction();
+    try {
+      const existing = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: [{ model: statusPengajuanKpbpn, attributes: ["id", "nama"] }],
+        transaction,
+      });
+      if (!existing) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Pengajuan tidak ditemukan" });
+      }
+      if (!STATUS_SIAP_BELI.has(existing.statusPengajuanKpbpn?.nama)) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Status item diubah setelah pengajuan disetujui",
+        });
+      }
+
+      const item = await itemPengajuanBarjasKpbpn.findOne({
+        where: { id: itemId, pengajuanBarjasKpbpnId: id },
+        transaction,
+      });
+      if (!item) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Item pengajuan tidak ditemukan" });
+      }
+      if (statusBeli === "dibeli" && (item.hargaAktual == null || item.hargaAktual === "")) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: "Isi harga aktual terlebih dahulu sebelum menandai item sudah dibeli",
+        });
+      }
+
+      await item.update({ statusBeli }, { transaction });
+      await selaraskanStatusPembelian(id, transaction);
+      await transaction.commit();
+
+      const result = await pengajuanBarjasKpbpn.findByPk(id, {
+        include: includeDetail,
+      });
+      const message =
+        statusBeli === "dibeli"
+          ? "Item ditandai sudah dibeli"
+          : "Item ditandai belum dibeli";
+      return res.status(200).json({ success: true, message, result });
+    } catch (err) {
+      if (!transaction.finished) await transaction.rollback();
+      console.log(err);
+      return res.status(err.statusCode || 500).json({ error: err.message });
     }
   },
 

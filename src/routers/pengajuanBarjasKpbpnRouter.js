@@ -22,6 +22,8 @@ routers.get("/qrcode/:id", pengajuanBarjasKpbpnControllers.generateQrCode);
 routers.get("/admin/stats", pengajuanBarjasKpbpnControllers.getAdminStats);
 routers.post("/admin/delete-all", pengajuanBarjasKpbpnControllers.deleteAll);
 routers.get("/seed", pengajuanBarjasKpbpnControllers.getSeed);
+routers.get("/persetujuan", pengajuanBarjasKpbpnControllers.getPersetujuan);
+routers.post("/persetujuan/:id", pengajuanBarjasKpbpnControllers.putuskanPersetujuan);
 routers.get("/get", pengajuanBarjasKpbpnControllers.getAll);
 routers.get("/cetak/:id", pengajuanBarjasKpbpnControllers.cetak);
 routers.get("/detail/:id", pengajuanBarjasKpbpnControllers.getDetail);
@@ -32,6 +34,7 @@ routers.post("/mengetahui/:id", pengajuanBarjasKpbpnControllers.updateMengetahui
 routers.post("/menyetujui/:id", pengajuanBarjasKpbpnControllers.updateMenyetujui);
 routers.post("/estimasi/:id", pengajuanBarjasKpbpnControllers.updateEstimasi);
 routers.post("/harga/:id", pengajuanBarjasKpbpnControllers.updateHarga);
+routers.post("/status-item/:id", pengajuanBarjasKpbpnControllers.updateStatusItem);
 routers.post("/delete/:id", pengajuanBarjasKpbpnControllers.remove);
 
 module.exports = routers;
