@@ -267,6 +267,13 @@ const bacaIdOpsional = (value, label) => {
 const pemintaPunyaRole = (req, roleId) =>
   getKpbpnRoleIds(req).includes(Number(roleId));
 
+const bolehBuatPengajuan = (req) =>
+  pemintaPunyaRole(req, ROLE_KPBPN.SUPER_ADMIN) ||
+  pemintaPunyaRole(req, ROLE_KPBPN.ADMIN);
+
+const bolehUbahStatusPengajuan = (req) =>
+  pemintaPunyaRole(req, ROLE_KPBPN.GENERAL_AFFAIR);
+
 const bolehInputHarga = (req) =>
   pemintaPunyaRole(req, ROLE_KPBPN.KEUANGAN) ||
   pemintaPunyaRole(req, ROLE_KPBPN.GENERAL_AFFAIR);
@@ -581,6 +588,108 @@ module.exports = {
     }
   },
 
+  getItemPembelian: async (req, res) => {
+    const page = parseInt(req.query.page, 10) || 0;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const offset = page * limit;
+    const search = String(req.query.search || "").trim();
+    const statusBeli = String(req.query.statusBeli || "").trim();
+    const jenis = String(req.query.jenis || "").trim();
+    const sortBy = String(req.query.sortBy || "tanggal").trim();
+    const sortDir =
+      String(req.query.sortDir || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+    const where = {};
+    if (statusBeli === "belum" || statusBeli === "dibeli") {
+      where.statusBeli = statusBeli;
+    }
+    if (search) {
+      where[Op.or] = [
+        { nama: { [Op.like]: `%${search}%` } },
+        { spesifikasi: { [Op.like]: `%${search}%` } },
+        { keterangan: { [Op.like]: `%${search}%` } },
+        { "$pengajuanBarjasKpbpn.nomor$": { [Op.like]: `%${search}%` } },
+        { "$pengajuanBarjasKpbpn.keperluan$": { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    const pengajuanWhere = {};
+    if (jenis === "barang" || jenis === "jasa") pengajuanWhere.jenis = jenis;
+
+    const kolomSort = {
+      nama: ["nama"],
+      jumlah: ["jumlah"],
+      satuan: ["satuan"],
+      statusBeli: ["statusBeli"],
+      estimasiHarga: ["estimasiHarga"],
+      hargaAktual: ["hargaAktual"],
+      tanggal: [sequelize.col("pengajuanBarjasKpbpn.tanggal")],
+      nomor: [sequelize.col("pengajuanBarjasKpbpn.nomor")],
+      jenis: [sequelize.col("pengajuanBarjasKpbpn.jenis")],
+      statusPengajuan: [
+        sequelize.col("pengajuanBarjasKpbpn.statusPengajuanKpbpnId"),
+      ],
+    };
+    const orderCol = kolomSort[sortBy] || kolomSort.tanggal;
+
+    try {
+      const includePengajuan = {
+        model: pengajuanBarjasKpbpn,
+        required: true,
+        attributes: ["id", "nomor", "tanggal", "jenis", "keperluan", "lokasi"],
+        where: Object.keys(pengajuanWhere).length ? pengajuanWhere : undefined,
+        include: [
+          { model: statusPengajuanKpbpn, attributes: ["id", "nama"] },
+          { model: userKPBPN, attributes: ["id", "nama"] },
+        ],
+      };
+
+      const { count, rows } = await itemPengajuanBarjasKpbpn.findAndCountAll({
+        where,
+        include: [includePengajuan],
+        order: [
+          [...orderCol, sortDir],
+          ["id", "DESC"],
+        ],
+        limit,
+        offset,
+        distinct: true,
+        subQuery: false,
+      });
+
+      const ringkasWhere = { ...where };
+      delete ringkasWhere.statusBeli;
+      const [totalBelum, totalDibeli] = await Promise.all([
+        itemPengajuanBarjasKpbpn.count({
+          where: { ...ringkasWhere, statusBeli: "belum" },
+          include: [includePengajuan],
+          distinct: true,
+        }),
+        itemPengajuanBarjasKpbpn.count({
+          where: { ...ringkasWhere, statusBeli: "dibeli" },
+          include: [includePengajuan],
+          distinct: true,
+        }),
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        result: rows,
+        page,
+        limit,
+        totalRows: count,
+        totalPage: Math.ceil(count / limit),
+        totalBelum,
+        totalDibeli,
+        sortBy: kolomSort[sortBy] ? sortBy : "tanggal",
+        sortDir,
+      });
+    } catch (err) {
+      console.log(err);
+      return res.status(500).json({ error: err.message });
+    }
+  },
+
   getDetail: async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "ID pengajuan tidak valid" });
@@ -600,6 +709,12 @@ module.exports = {
   },
 
   create: async (req, res) => {
+    if (!bolehBuatPengajuan(req)) {
+      return res.status(403).json({
+        error: "Pengajuan hanya dapat dibuat oleh Admin",
+      });
+    }
+
     let payload;
     try {
       payload = bacaPayload(req.body);
@@ -714,6 +829,12 @@ module.exports = {
   },
 
   edit: async (req, res) => {
+    if (!bolehBuatPengajuan(req)) {
+      return res.status(403).json({
+        error: "Pengajuan hanya dapat diubah oleh Admin",
+      });
+    }
+
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: "ID pengajuan tidak valid" });
 
@@ -1051,7 +1172,7 @@ module.exports = {
     }),
 
   updateStatus: async (req, res) => {
-    if (!pemintaPunyaRole(req, ROLE_KPBPN.GENERAL_AFFAIR)) {
+    if (!bolehUbahStatusPengajuan(req)) {
       return res.status(403).json({
         error: "Status pengajuan hanya dapat diubah oleh General Affair",
       });

@@ -25,6 +25,7 @@ routers.get("/seed", pengajuanBarjasKpbpnControllers.getSeed);
 routers.get("/persetujuan", pengajuanBarjasKpbpnControllers.getPersetujuan);
 routers.post("/persetujuan/:id", pengajuanBarjasKpbpnControllers.putuskanPersetujuan);
 routers.get("/get", pengajuanBarjasKpbpnControllers.getAll);
+routers.get("/item-pembelian", pengajuanBarjasKpbpnControllers.getItemPembelian);
 routers.get("/cetak/:id", pengajuanBarjasKpbpnControllers.cetak);
 routers.get("/detail/:id", pengajuanBarjasKpbpnControllers.getDetail);
 routers.post("/post", fotoUploader, pengajuanBarjasKpbpnControllers.create);
